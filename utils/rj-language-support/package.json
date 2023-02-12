@@ -1,0 +1,25 @@
+{
+  "name": "rj-language-support",
+  "displayName": "RJ Language Support",
+  "description": "Language Support for RJ",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "rj",
+      "aliases": ["RJ", "rj"],
+      "extensions": [".rj"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "rj",
+      "scopeName": "source.rj",
+      "path": "./syntaxes/rj.tmLanguage.json"
+    }]
+  }
+}
