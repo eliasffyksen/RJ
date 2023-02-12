@@ -1,5 +1,4 @@
 use std::env::args;
-use std::fs::read_to_string;
 
 use pest::error::Error;
 use pest::iterators::Pair;
