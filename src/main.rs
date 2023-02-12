@@ -33,7 +33,8 @@ fn main() -> Result<(), Error<Rule>> {
 
     let mut out = std::io::stdout();
 
-    file.generate_ir(&mut out).expect("Failed writing to stdout");
+    file.generate_ir(&mut out)
+        .expect("Failed writing to stdout");
 
     Ok(())
 }
