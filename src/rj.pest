@@ -1,0 +1,21 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+func = {
+  "fn" ~ ident? ~ arg_def ~ block
+}
+
+ident = @{
+  ASCII_ALPHA ~ ASCII_ALPHANUMERIC*
+}
+
+arg_def= {
+  "(" ~ ")"
+}
+
+block = {
+  "{" ~ "}"
+}
+
+file = {
+  SOI ~ func* ~ EOI
+}
