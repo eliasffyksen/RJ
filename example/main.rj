@@ -1,8 +1,5 @@
 
 fn main() {
-
-}
-
-fn test() {
-
+  a: i32
+  b: i32
 }

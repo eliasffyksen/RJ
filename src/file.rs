@@ -5,16 +5,18 @@ use pest::error::Error;
 use pest::iterators::Pair;
 use pest::Parser;
 
+use crate::IRContext;
 use crate::function::Function;
 use crate::GenerateAST;
 use crate::GenerateIR;
 use crate::RJParser;
 use crate::Rule;
+use crate::ident::Ident;
 
 #[derive(Debug, Default)]
 pub struct File {
     name: String,
-    functions: HashMap<String, Function>,
+    functions: HashMap<Ident, Function>,
 }
 
 impl File {
@@ -66,12 +68,12 @@ impl GenerateAST<File> for File {
 }
 
 impl GenerateIR for File {
-    fn generate_ir(&self, out: &mut impl std::io::Write) -> Result<(), std::io::Error> {
+    fn generate_ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
         writeln!(out, "source_filename = \"{}\"", self.name)?;
         writeln!(out)?;
 
         for (_, function) in &self.functions {
-            function.generate_ir(out)?;
+            function.generate_ir(out, context)?;
             writeln!(out)?;
         }
 

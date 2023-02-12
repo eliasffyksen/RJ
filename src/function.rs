@@ -1,10 +1,13 @@
 use pest::iterators::Pair;
 
-use crate::{GenerateAST, GenerateIR, Rule};
+use crate::block::Block;
+use crate::{GenerateAST, GenerateIR, Rule, IRContext};
+use crate::ident::Ident;
 
 #[derive(Debug, Default)]
 pub struct Function {
-    pub name: Option<String>,
+    pub name: Option<Ident>,
+    pub block: Block,
 }
 
 impl GenerateAST<Function> for Function {
@@ -19,10 +22,14 @@ impl GenerateAST<Function> for Function {
             ),
         };
 
-        let name = inner.filter(|pair| pair.as_rule() == Rule::ident).next();
+        for pair in inner {
+            match pair.as_rule() {
+                Rule::ident => function.name = Some(Ident::generate_ast(pair)),
+                Rule::arg_def => (),
+                Rule::block => function.block = Block::generate_ast(pair),
 
-        if let Some(name) = name {
-            function.name = Some(name.as_span().as_str().to_string())
+                _ => panic!("Invalid pair in function: {:?}", pair)
+            }
         }
 
         function
@@ -30,7 +37,7 @@ impl GenerateAST<Function> for Function {
 }
 
 impl GenerateIR for Function {
-    fn generate_ir(&self, out: &mut impl std::io::Write) -> Result<(), std::io::Error> {
+    fn generate_ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
         let name = match &self.name {
             Some(name) => name,
             _ => panic!(
@@ -39,7 +46,14 @@ impl GenerateIR for Function {
             ),
         };
 
+        context.clear_register();
+
         writeln!(out, "define void @{}() {{", name)?;
+
+        context.claim_register();
+
+        self.block.generate_ir(out, context)?;
+
         writeln!(out, "  ret void")?;
         writeln!(out, "}}")?;
 

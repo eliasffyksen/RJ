@@ -6,6 +6,9 @@
 			"include": "#keywords"
 		},
 		{
+			"include": "#primitives"
+		},
+		{
 			"include": "#strings"
 		}
 	],
@@ -17,6 +20,12 @@
 			}, {
 				"name": "keyword.other.rj",
 				"match": "\\bfn\\b"
+			}]
+		},
+		"primitives": {
+			"patterns": [{
+				"name": "entity.name.type",
+				"match": "\\b(i32)\\b"
 			}]
 		},
 		"strings": {
