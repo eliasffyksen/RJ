@@ -34,9 +34,9 @@ impl Stmt {
 }
 
 #[derive(Debug)]
-struct VarDecl {
-    ident: Ident,
-    var_type: Type,
+pub struct VarDecl {
+    pub ident: Ident,
+    pub var_type: Type,
 }
 
 impl VarDecl {

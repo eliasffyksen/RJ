@@ -36,6 +36,16 @@ impl IRContext {
     }
 }
 
+fn check_rule(pair: &Pair<Rule>, rule: Rule) {
+    if pair.as_rule() != rule {
+        panic!("Expected rule {:?}, got {:?}", rule, pair);
+    }
+}
+
+fn unexpected_pair(pair: &Pair<Rule>) {
+    panic!("Unexpected pair {:?}", pair);
+}
+
 fn main() -> Result<(), Error<Rule>> {
     let args: Vec<String> = args().collect();
 
