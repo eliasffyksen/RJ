@@ -26,6 +26,19 @@ block = {
 
 stmt = {
   var_decl
+  | func_ret
+}
+
+func_ret = {
+  "return" ~ expr?
+}
+
+expr = {
+  expr_elm ~ ("," ~ expr_elm)*
+}
+
+expr_elm = {
+  ident
 }
 
 var_decl = {

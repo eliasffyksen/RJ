@@ -1,11 +1,14 @@
+use pest::iterators::Pair;
+
 use crate::{
     ident::{Ident, IdentImpl},
-    Rule, scope::{Scopable, ScopeEntry},
+    Rule, scope::{Scopable, ScopeEntry}, expression::Expression, check_rule, unexpected_pair,
 };
 
 #[derive(Debug)]
 pub enum Stmt {
     VarDecl(VarDecl),
+    FuncReturn(Vec<Expression>),
 }
 
 impl Stmt {
@@ -17,27 +20,42 @@ impl Stmt {
     ) -> Result<(), std::io::Error> {
         match self {
             Stmt::VarDecl(var_decl) => var_decl.ir(out, context, scope)?,
+
+            _ => todo!(),
         }
 
         Ok(())
     }
 
-    pub fn ast(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    pub fn ast(pair: Pair<Rule>) -> Stmt {
         if pair.as_rule() != Rule::stmt {
             panic!("Attempted to generate Stmt from non Stmt pair: {:?}", pair)
         }
 
-        let mut stmt = None;
-
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::var_decl => stmt = Some(Stmt::VarDecl(VarDecl::ast(pair))),
+                Rule::var_decl => return Self::VarDecl(VarDecl::ast(pair)),
+                Rule::func_ret => return Self::ast_return(pair),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
         }
 
-        stmt.expect("No valid statement")
+        panic!("No pairs in statement");
+    }
+
+    fn ast_return(pair: Pair<Rule>) -> Self {
+        check_rule(&pair, Rule::func_ret);
+
+        for pair in pair.into_inner() {
+            match pair.as_rule() {
+                Rule::expr => return Stmt::FuncReturn(Expression::ast(pair)),
+
+                _ => unexpected_pair(&pair),
+            }
+        }
+
+        panic!("No pair in return statement")
     }
 }
 

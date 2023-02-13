@@ -9,6 +9,7 @@ mod stmt;
 mod ident;
 mod block;
 mod scope;
+mod expression;
 
 use crate::file::File;
 
