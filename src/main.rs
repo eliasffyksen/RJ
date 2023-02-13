@@ -36,14 +36,6 @@ impl IRContext {
     }
 }
 
-pub trait GenerateAST<T> {
-    fn generate_ast(pair: Pair<Rule>) -> T;
-}
-
-pub trait GenerateIR {
-    fn generate_ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error>;
-}
-
 fn main() -> Result<(), Error<Rule>> {
     let args: Vec<String> = args().collect();
 
@@ -58,7 +50,7 @@ fn main() -> Result<(), Error<Rule>> {
 
     let mut context: IRContext = Default::default();
 
-    file.generate_ir(&mut out, &mut context)
+    file.ir(&mut out, &mut context)
         .expect("Failed writing to stdout");
 
     Ok(())

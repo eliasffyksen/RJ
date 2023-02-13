@@ -1,5 +1,3 @@
-use crate::GenerateAST;
-use crate::GenerateIR;
 use crate::Rule;
 use crate::stmt::Stmt;
 
@@ -8,8 +6,16 @@ pub struct Block {
     statements: Vec<Stmt>
 }
 
-impl GenerateAST<Block> for Block {
-    fn generate_ast(pair: pest::iterators::Pair<crate::Rule>) -> Block {
+impl Block {
+    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut crate::IRContext) -> Result<(), std::io::Error> {
+        for statement in &self.statements {
+            statement.ir(out, context)?
+        }
+
+        Ok(())
+    }
+
+    pub fn ast(pair: pest::iterators::Pair<crate::Rule>) -> Block {
         if pair.as_rule() != Rule::block {
             panic!("Attempted generating block from non block pair: {:?}", pair)
         }
@@ -19,22 +25,12 @@ impl GenerateAST<Block> for Block {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::stmt => block.statements.push(Stmt::generate_ast(pair)),
+                Rule::stmt => block.statements.push(Stmt::ast(pair)),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
         }
 
         block
-    }
-}
-
-impl GenerateIR for Block {
-    fn generate_ir(&self, out: &mut impl std::io::Write, context: &mut crate::IRContext) -> Result<(), std::io::Error> {
-        for statement in &self.statements {
-            statement.generate_ir(out, context)?
-        }
-
-        Ok(())
     }
 }

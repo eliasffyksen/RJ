@@ -1,7 +1,13 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 func = {
-  "fn" ~ ident? ~ arg_def ~ block
+  "fn" ~ ident? ~ arg_def
+  ~ (":" ~ ret_type)?
+  ~ block
+}
+
+ret_type = {
+  var_type ~ ("," ~ var_type)*
 }
 
 ident = @{

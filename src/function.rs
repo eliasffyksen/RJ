@@ -1,8 +1,8 @@
 use pest::iterators::Pair;
 
 use crate::block::Block;
-use crate::{GenerateAST, GenerateIR, Rule, IRContext};
-use crate::ident::Ident;
+use crate::{Rule, IRContext};
+use crate::ident::{Ident, IdentImpl};
 
 #[derive(Debug, Default)]
 pub struct Function {
@@ -10,8 +10,8 @@ pub struct Function {
     pub block: Block,
 }
 
-impl GenerateAST<Function> for Function {
-    fn generate_ast(pair: Pair<Rule>) -> Function {
+impl Function {
+    pub fn ast(pair: Pair<Rule>) -> Function {
         let mut function: Function = Default::default();
 
         let inner = match pair.as_rule() {
@@ -24,9 +24,9 @@ impl GenerateAST<Function> for Function {
 
         for pair in inner {
             match pair.as_rule() {
-                Rule::ident => function.name = Some(Ident::generate_ast(pair)),
+                Rule::ident => function.name = Some(Ident::ast(pair)),
                 Rule::arg_def => (),
-                Rule::block => function.block = Block::generate_ast(pair),
+                Rule::block => function.block = Block::ast(pair),
 
                 _ => panic!("Invalid pair in function: {:?}", pair)
             }
@@ -34,10 +34,8 @@ impl GenerateAST<Function> for Function {
 
         function
     }
-}
 
-impl GenerateIR for Function {
-    fn generate_ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
+    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
         let name = match &self.name {
             Some(name) => name,
             _ => panic!(
@@ -52,7 +50,7 @@ impl GenerateIR for Function {
 
         context.claim_register();
 
-        self.block.generate_ir(out, context)?;
+        self.block.ir(out, context)?;
 
         writeln!(out, "  ret void")?;
         writeln!(out, "}}")?;
