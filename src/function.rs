@@ -2,7 +2,7 @@ use pest::iterators::Pair;
 
 use crate::block::Block;
 use crate::scope::{NonScope, Scopable, ScopeEntry};
-use crate::stmt::VarDecl;
+use crate::stmt::{VarDecl, Type};
 use crate::{Rule, IRContext, check_rule, unexpected_pair};
 use crate::ident::{Ident, IdentImpl};
 
@@ -10,7 +10,8 @@ use crate::ident::{Ident, IdentImpl};
 pub struct Function {
     pub name: Option<Ident>,
     pub block: Block,
-    pub args: Vec<VarDecl>,
+    args: Vec<VarDecl>,
+    ret_type: Vec<Type>,
 }
 
 impl Function {
@@ -24,6 +25,7 @@ impl Function {
                 Rule::ident => function.name = Some(Ident::ast(pair)),
                 Rule::arg_def => function.ast_args(pair),
                 Rule::block => function.block = Block::ast(pair),
+                Rule::ret_type => function.ast_ret_type(pair),
 
                 _ => panic!("Invalid pair in function: {:?}", pair)
             }
@@ -44,6 +46,18 @@ impl Function {
         }
     }
 
+    fn ast_ret_type(&mut self, pair: Pair<Rule>) {
+        check_rule(&pair, Rule::ret_type);
+
+        for pair in pair.into_inner() {
+            match pair.as_rule() {
+                Rule::var_type => self.ret_type.push(Type::ast(pair)),
+
+                _ => unexpected_pair(&pair),
+            }
+        }
+    }
+
     pub fn ir(&self, output: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
         let name = match &self.name {
             Some(name) => name,
@@ -54,8 +68,6 @@ impl Function {
         };
 
         let mut scope = NonScope{}.new_scope();
-
-        context.clear_register();
 
         write!(output, "define void @{}", name)?;
 
@@ -79,18 +91,18 @@ impl Function {
         scope: &mut impl Scopable
     )-> Result<(), std::io::Error> {
 
-        let mut first = true;
-
         write!(output, "(")?;
 
+        context.clear_register();
+
+        self.ir_ret_type(output, context)?;
+
         for arg in &self.args {
-            if first {
-                first = false;
-            } else {
+            let register = context.claim_register();
+
+            if register != 0 {
                 write!(output, ", ")?;
             }
-
-            let register = context.claim_register();
 
             scope.set_entry(ScopeEntry{
                 var_decl: arg.clone(),
@@ -101,6 +113,24 @@ impl Function {
         }
 
         write!(output, ")")?;
+
+        Ok(())
+    }
+
+    fn ir_ret_type(
+        &self, output: &mut impl std::io::Write,
+        context: &mut IRContext,
+    )-> Result<(), std::io::Error> {
+
+        for var_type in &self.ret_type {
+            let register = context.claim_register();
+
+            if register != 0 {
+                write!(output, ", ")?;
+            }
+
+            write!(output, "{}* %{}", var_type.get_ir_type(), register)?;
+        }
 
         Ok(())
     }

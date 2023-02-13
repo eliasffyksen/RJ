@@ -22,8 +22,6 @@ impl Block {
             statement.ir(output, context, &mut scope)?
         }
 
-        writeln!(output, "{:#?}", scope)?;
-
         Ok(())
     }
 

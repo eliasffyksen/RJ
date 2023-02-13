@@ -2,7 +2,6 @@ use std::env::args;
 
 use pest::error::Error;
 use pest::iterators::Pair;
-use scope::Scopable;
 
 mod file;
 mod function;
@@ -12,7 +11,6 @@ mod block;
 mod scope;
 
 use crate::file::File;
-use crate::scope::NonScope;
 
 extern crate pest;
 #[macro_use]
