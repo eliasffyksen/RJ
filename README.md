@@ -41,6 +41,6 @@ define void @test() {
 
 ### Bad news
 
-Currently it only support function definitions and variable decelerations,
+Currently it only support function definitions and variable declarations,
 so good luck writing the next hottest tinder clone in this (almost) turing
 complete language.
