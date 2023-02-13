@@ -109,7 +109,7 @@ impl Function {
                 register
             });
 
-            write!(output, "{} %{}", arg.var_type.get_ir_type(), register)?;
+            write!(output, "{}* %{}", arg.var_type.get_ir_type(), register)?;
         }
 
         write!(output, ")")?;

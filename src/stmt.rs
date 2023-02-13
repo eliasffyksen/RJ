@@ -1,8 +1,13 @@
+use std::process::Output;
+
 use pest::iterators::Pair;
 
 use crate::{
+    check_rule,
+    expression::{self, Expression},
     ident::{Ident, IdentImpl},
-    Rule, scope::{Scopable, ScopeEntry}, expression::Expression, check_rule, unexpected_pair,
+    scope::{Scopable, ScopeEntry},
+    unexpected_pair, Rule,
 };
 
 #[derive(Debug)]
@@ -12,21 +17,6 @@ pub enum Stmt {
 }
 
 impl Stmt {
-    pub fn ir(
-        &self,
-        out: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-    ) -> Result<(), std::io::Error> {
-        match self {
-            Stmt::VarDecl(var_decl) => var_decl.ir(out, context, scope)?,
-
-            _ => todo!(),
-        }
-
-        Ok(())
-    }
-
     pub fn ast(pair: Pair<Rule>) -> Stmt {
         if pair.as_rule() != Rule::stmt {
             panic!("Attempted to generate Stmt from non Stmt pair: {:?}", pair)
@@ -56,6 +46,43 @@ impl Stmt {
         }
 
         panic!("No pair in return statement")
+    }
+
+    pub fn ir(
+        &self,
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+    ) -> Result<(), std::io::Error> {
+        match self {
+            Stmt::VarDecl(var_decl) => var_decl.ir(output, context, scope)?,
+            Stmt::FuncReturn(func_return) => Self::ir_return(func_return, output, context, scope)?,
+        }
+
+        writeln!(output)?;
+
+        Ok(())
+    }
+
+    pub fn ir_return(
+        func_return: &Vec<Expression>,
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+    ) -> Result<(), std::io::Error> {
+        for (i, expression) in func_return.iter().enumerate() {
+            let (var_type, register) = expression.ir(output, context, scope)?;
+            writeln!(
+                output,
+                "  store {} %{}, {}* %{}",
+                var_type.get_ir_type(),
+                register,
+                var_type.get_ir_type(),
+                i
+            )?;
+        }
+
+        Ok(())
     }
 }
 
@@ -106,7 +133,7 @@ impl VarDecl {
             self.var_type.get_ir_type()
         )?;
 
-        scope.set_entry(ScopeEntry{
+        scope.set_entry(ScopeEntry {
             var_decl: self.clone(),
             register,
         });
