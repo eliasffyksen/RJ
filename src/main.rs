@@ -2,14 +2,17 @@ use std::env::args;
 
 use pest::error::Error;
 use pest::iterators::Pair;
+use scope::Scopable;
 
 mod file;
 mod function;
 mod stmt;
 mod ident;
 mod block;
+mod scope;
 
 use crate::file::File;
+use crate::scope::NonScope;
 
 extern crate pest;
 #[macro_use]
@@ -21,7 +24,7 @@ struct RJParser;
 
 #[derive(Default)]
 pub struct IRContext {
-    next_register: usize
+    next_register: usize,
 }
 
 impl IRContext {

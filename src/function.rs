@@ -1,6 +1,7 @@
 use pest::iterators::Pair;
 
 use crate::block::Block;
+use crate::scope::{NonScope, Scopable, ScopeEntry};
 use crate::stmt::VarDecl;
 use crate::{Rule, IRContext, check_rule, unexpected_pair};
 use crate::ident::{Ident, IdentImpl};
@@ -52,17 +53,19 @@ impl Function {
             ),
         };
 
+        let mut scope = NonScope{}.new_scope();
+
         context.clear_register();
 
         write!(output, "define void @{}", name)?;
 
-        self.ir_args(output, context)?;
+        self.ir_args(output, context, &mut scope)?;
 
         writeln!(output, " {{")?;
 
         context.claim_register();
 
-        self.block.ir(output, context)?;
+        self.block.ir(output, context, &mut scope)?;
 
         writeln!(output, "  ret void")?;
         writeln!(output, "}}")?;
@@ -70,7 +73,12 @@ impl Function {
         Ok(())
     }
 
-    fn ir_args(&self, output: &mut impl std::io::Write, context: &mut IRContext)-> Result<(), std::io::Error> {
+    fn ir_args(
+        &self, output: &mut impl std::io::Write,
+        context: &mut IRContext,
+        scope: &mut impl Scopable
+    )-> Result<(), std::io::Error> {
+
         let mut first = true;
 
         write!(output, "(")?;
@@ -83,6 +91,11 @@ impl Function {
             }
 
             let register = context.claim_register();
+
+            scope.set_entry(ScopeEntry{
+                var_decl: arg.clone(),
+                register
+            });
 
             write!(output, "{} %{}", arg.var_type.get_ir_type(), register)?;
         }

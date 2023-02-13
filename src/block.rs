@@ -1,16 +1,28 @@
-use crate::Rule;
+use std::fmt::Debug;
+
+use crate::scope::Scopable;
 use crate::stmt::Stmt;
+use crate::Rule;
 
 #[derive(Debug, Default)]
 pub struct Block {
-    statements: Vec<Stmt>
+    statements: Vec<Stmt>,
 }
 
 impl Block {
-    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut crate::IRContext) -> Result<(), std::io::Error> {
+    pub fn ir(
+        &self,
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut (impl Scopable + std::fmt::Debug),
+    ) -> Result<(), std::io::Error> {
+        let mut scope = scope.new_scope();
+
         for statement in &self.statements {
-            statement.ir(out, context)?
+            statement.ir(output, context, &mut scope)?
         }
+
+        writeln!(output, "{:#?}", scope)?;
 
         Ok(())
     }
@@ -21,7 +33,6 @@ impl Block {
         }
 
         let mut block: Block = Default::default();
-
 
         for pair in pair.into_inner() {
             match pair.as_rule() {

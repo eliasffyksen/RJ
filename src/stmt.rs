@@ -1,4 +1,7 @@
-use crate::{ident::{Ident, IdentImpl}, Rule};
+use crate::{
+    ident::{Ident, IdentImpl},
+    Rule, scope::{Scopable, ScopeEntry},
+};
 
 #[derive(Debug)]
 pub enum Stmt {
@@ -6,9 +9,14 @@ pub enum Stmt {
 }
 
 impl Stmt {
-    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut crate::IRContext) -> Result<(), std::io::Error> {
+    pub fn ir(
+        &self,
+        out: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+    ) -> Result<(), std::io::Error> {
         match self {
-            Stmt::VarDecl(var_decl) => var_decl.ir(out, context)?
+            Stmt::VarDecl(var_decl) => var_decl.ir(out, context, scope)?,
         }
 
         Ok(())
@@ -33,7 +41,7 @@ impl Stmt {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VarDecl {
     pub ident: Ident,
     pub var_type: Type,
@@ -42,7 +50,10 @@ pub struct VarDecl {
 impl VarDecl {
     pub fn ast(pair: pest::iterators::Pair<Rule>) -> VarDecl {
         if pair.as_rule() != Rule::var_decl {
-            panic!("Attempted to generate VarDecl from non VarDecl pair: {:?}", pair)
+            panic!(
+                "Attempted to generate VarDecl from non VarDecl pair: {:?}",
+                pair
+            )
         }
 
         let mut ident = None;
@@ -59,19 +70,34 @@ impl VarDecl {
 
         VarDecl {
             ident: ident.expect("No identifier"),
-            var_type: var_type.expect("No var type")
+            var_type: var_type.expect("No var type"),
         }
     }
 
-    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut crate::IRContext) -> Result<(), std::io::Error> {
+    pub fn ir(
+        &self,
+        out: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+    ) -> Result<(), std::io::Error> {
         let register = context.claim_register();
-        writeln!(out, "  %{} = alloca {}", register, self.var_type.get_ir_type())?;
+        writeln!(
+            out,
+            "  %{} = alloca {}",
+            register,
+            self.var_type.get_ir_type()
+        )?;
+
+        scope.set_entry(ScopeEntry{
+            var_decl: self.clone(),
+            register,
+        });
 
         Ok(())
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Type {
     I32,
 }
@@ -79,7 +105,7 @@ pub enum Type {
 impl Type {
     pub fn get_ir_type(&self) -> &'static str {
         match self {
-            Type::I32 => "i32"
+            Type::I32 => "i32",
         }
     }
 
