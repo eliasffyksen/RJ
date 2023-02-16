@@ -1,4 +1,6 @@
 
-fn test(): i32 {
-  return 666
+fn test(a: i32): i32, i32, i32 {
+  b: i32
+  b = 666
+  return a, b, 123
 }

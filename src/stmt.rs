@@ -14,6 +14,7 @@ use crate::{
 pub enum Stmt {
     VarDecl(VarDecl),
     FuncReturn(Vec<Expression>),
+    Assign((Vec<Ident>, Vec<Expression>)),
 }
 
 impl Stmt {
@@ -26,6 +27,7 @@ impl Stmt {
             match pair.as_rule() {
                 Rule::var_decl => return Self::VarDecl(VarDecl::ast(pair)),
                 Rule::func_ret => return Self::ast_return(pair),
+                Rule::assign => return Self::ast_assign(pair),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
@@ -48,6 +50,23 @@ impl Stmt {
         panic!("No pair in return statement")
     }
 
+    fn ast_assign(pair: Pair<Rule>) -> Self {
+        check_rule(&pair, Rule::assign);
+
+        let mut identifiers = vec![];
+
+        for pair in pair.into_inner() {
+            match pair.as_rule() {
+                Rule::expr => return Self::Assign((identifiers, Expression::ast(pair))),
+                Rule::ident => identifiers.push(Ident::ast(pair)),
+
+                _ => unexpected_pair(&pair),
+            }
+        }
+
+        panic!("No expression in return statement")
+    }
+
     pub fn ir(
         &self,
         output: &mut impl std::io::Write,
@@ -59,6 +78,9 @@ impl Stmt {
                 var_decl.ir(output, context, scope)?;
             }
             Stmt::FuncReturn(func_return) => Self::ir_return(func_return, output, context, scope)?,
+            Stmt::Assign((identifiers, expressions)) => {
+                Self::ir_assign(identifiers, expressions, output, context, scope)?
+            }
         }
 
         writeln!(output)?;
@@ -82,11 +104,54 @@ impl Stmt {
             )
         }
 
-        for (dst_register, (ret_type, expression)) in iter::zip(ret_type, func_return.iter()).enumerate() {
-            match expression.ir(output, context, scope, ExpressionInput {
-                data_type: ret_type.clone(),
-                store_to: Some(dst_register),
-            })? {
+        for (dst_register, (ret_type, expression)) in iter::zip(ret_type, func_return).enumerate() {
+            match expression.ir(
+                output,
+                context,
+                scope,
+                ExpressionInput {
+                    data_type: ret_type.clone(),
+                    store_to: Some(dst_register),
+                },
+            )? {
+                Some(_) => panic!("Return expression returned data"),
+                None => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn ir_assign(
+        identifiers: &Vec<Ident>,
+        expressions: &Vec<Expression>,
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+    ) -> Result<(), std::io::Error> {
+        if identifiers.len() != expressions.len() {
+            panic!(
+                "Incorrect assignment count, expected {} values got {}",
+                identifiers.len(),
+                expressions.len(),
+            )
+        }
+
+        for (identifier, expression) in iter::zip(identifiers, expressions) {
+            let variable = match scope.get_entry(identifier) {
+                Some(entry) => entry,
+                None => panic!("Identifier not available in scope {}", identifier),
+            };
+
+            match expression.ir(
+                output,
+                context,
+                scope,
+                ExpressionInput {
+                    data_type: variable.var_decl.var_type.clone(),
+                    store_to: Some(variable.register),
+                },
+            )? {
                 Some(_) => panic!("Return expression returned data"),
                 None => (),
             }
