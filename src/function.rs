@@ -1,7 +1,7 @@
 use pest::iterators::Pair;
 
 use crate::block::Block;
-use crate::scope::{NonScope, Scopable, ScopeEntry};
+use crate::scope::{NonScope, Scopable};
 use crate::stmt::{VarDecl, Type};
 use crate::{Rule, IRContext, check_rule, unexpected_pair};
 use crate::ident::{Ident, IdentImpl};
