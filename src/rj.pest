@@ -16,7 +16,7 @@ ident = @{
 
 arg_def= {
   "("
-  ~ (var_decl ~ ("," ~ var_decl)*)
+  ~ (var_decl ~ ("," ~ var_decl)*)?
   ~ ")"
 }
 
