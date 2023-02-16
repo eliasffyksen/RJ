@@ -69,13 +69,11 @@ impl Function {
 
         let mut scope = NonScope{}.new_scope();
 
+        scope.set_ret_type(self.ret_type.clone());
+
         write!(output, "define void @{}", name)?;
 
         self.ir_args(output, context, &mut scope)?;
-
-        writeln!(output, " {{")?;
-
-        context.claim_register();
 
         self.block.ir(output, context, &mut scope)?;
 
@@ -97,6 +95,8 @@ impl Function {
 
         self.ir_ret_type(output, context)?;
 
+        let mut arguments = vec![];
+
         for arg in &self.args {
             let register = context.claim_register();
 
@@ -104,15 +104,28 @@ impl Function {
                 write!(output, ", ")?;
             }
 
-            scope.set_entry(ScopeEntry{
-                var_decl: arg.clone(),
+            arguments.push((
+                arg.clone(),
                 register
-            });
+            ));
 
-            write!(output, "{}* %{}", arg.var_type.get_ir_type(), register)?;
+            write!(output, "{} %{}", arg.var_type.get_ir_type(), register)?;
         }
 
-        write!(output, ")")?;
+        writeln!(output, ") {{")?;
+
+        context.claim_register();
+
+        for (arg, input_register) in arguments {
+            let output_register = arg.ir(output, context, scope)?;
+
+            writeln!(output, "  store {} %{}, {}* %{}",
+                arg.var_type.get_ir_type(),
+                input_register,
+                arg.var_type.get_ir_type(),
+                output_register,
+            )?;
+        }
 
         Ok(())
     }

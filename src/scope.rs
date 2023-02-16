@@ -1,18 +1,25 @@
 use std::collections::HashMap;
 
-use crate::{stmt::VarDecl, ident::Ident};
+use crate::{
+    ident::Ident,
+    stmt::{Type, VarDecl},
+};
 
 pub trait Scopable {
+    fn set_ret_type(&mut self, ret_type: Vec<Type>);
+    fn get_ret_type(&self) -> &'_ Vec<Type>;
+
     fn set_entry(&mut self, scope_entry: ScopeEntry);
     fn get_entry(&self, ident: &Ident) -> Option<&'_ ScopeEntry>;
 
     fn new_scope(&self) -> Scope<Self>
     where
-        Self: Sized
+        Self: Sized,
     {
-        Scope{
+        Scope {
             entries: HashMap::new(),
             parent: self,
+            ret_type: None,
         }
     }
 }
@@ -28,22 +35,34 @@ impl Scopable for NonScope {
     fn get_entry(&self, _: &Ident) -> Option<&'_ ScopeEntry> {
         None
     }
+
+    fn set_ret_type(&mut self, ret_type: Vec<Type>) {
+        panic!("Attempted to set return type {:?} in non scope", ret_type);
+    }
+
+    fn get_ret_type(&self) -> &'_ Vec<Type> {
+        panic!("Attempted to get return type from non scope");
+    }
 }
 
 #[derive(Debug)]
 pub struct Scope<'parent, T> {
     entries: HashMap<Ident, ScopeEntry>,
     parent: &'parent T,
+    ret_type: Option<Vec<Type>>,
 }
 
 impl<T> Scopable for Scope<'_, T>
 where
-    T: Scopable
+    T: Scopable,
 {
     fn set_entry(&mut self, scope_entry: ScopeEntry) {
         let key = &scope_entry.var_decl.ident;
         if self.entries.contains_key(key) {
-            panic!("Attempted to set same variable in same scope twice: {:?}", scope_entry);
+            panic!(
+                "Attempted to set same variable in same scope twice: {:?}",
+                scope_entry
+            );
         }
 
         self.entries.insert(key.clone(), scope_entry);
@@ -53,6 +72,17 @@ where
         match self.entries.get(ident) {
             Some(scope_entry) => Some(scope_entry),
             None => self.parent.get_entry(ident),
+        }
+    }
+
+    fn set_ret_type(&mut self, ret_type: Vec<Type>) {
+        self.ret_type = Some(ret_type);
+    }
+
+    fn get_ret_type(&self) -> &'_ Vec<Type> {
+        match &self.ret_type {
+            Some(ret_type) => ret_type,
+            None => self.parent.get_ret_type(),
         }
     }
 }

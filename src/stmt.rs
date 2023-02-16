@@ -1,10 +1,10 @@
-use std::process::Output;
+use std::{iter, any::Any};
 
 use pest::iterators::Pair;
 
 use crate::{
     check_rule,
-    expression::{self, Expression},
+    expression::{Expression, ExpressionInput},
     ident::{Ident, IdentImpl},
     scope::{Scopable, ScopeEntry},
     unexpected_pair, Rule,
@@ -55,7 +55,9 @@ impl Stmt {
         scope: &mut impl Scopable,
     ) -> Result<(), std::io::Error> {
         match self {
-            Stmt::VarDecl(var_decl) => var_decl.ir(output, context, scope)?,
+            Stmt::VarDecl(var_decl) => {
+                var_decl.ir(output, context, scope)?;
+            }
             Stmt::FuncReturn(func_return) => Self::ir_return(func_return, output, context, scope)?,
         }
 
@@ -70,16 +72,24 @@ impl Stmt {
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
     ) -> Result<(), std::io::Error> {
-        for (i, expression) in func_return.iter().enumerate() {
-            let (var_type, register) = expression.ir(output, context, scope)?;
-            writeln!(
-                output,
-                "  store {} %{}, {}* %{}",
-                var_type.get_ir_type(),
-                register,
-                var_type.get_ir_type(),
-                i
-            )?;
+        let ret_type = scope.get_ret_type().clone();
+
+        if ret_type.len() != func_return.len() {
+            panic!(
+                "Incorrect return count, expected {} values got {}",
+                ret_type.len(),
+                func_return.len(),
+            )
+        }
+
+        for (dst_register, (ret_type, expression)) in iter::zip(ret_type, func_return.iter()).enumerate() {
+            match expression.ir(output, context, scope, ExpressionInput {
+                data_type: ret_type.clone(),
+                store_to: Some(dst_register),
+            })? {
+                Some(_) => panic!("Return expression returned data"),
+                None => (),
+            }
         }
 
         Ok(())
@@ -124,7 +134,7 @@ impl VarDecl {
         out: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<usize, std::io::Error> {
         let register = context.claim_register();
         writeln!(
             out,
@@ -138,11 +148,11 @@ impl VarDecl {
             register,
         });
 
-        Ok(())
+        Ok(register)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     I32,
 }
