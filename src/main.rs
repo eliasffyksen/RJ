@@ -1,15 +1,14 @@
-use std::env::args;
-
+use argparse::{ArgumentParser, Store, StoreTrue};
 use pest::error::Error;
 use pest::iterators::Pair;
 
+mod block;
+mod expression;
 mod file;
 mod function;
-mod stmt;
 mod ident;
-mod block;
 mod scope;
-mod expression;
+mod stmt;
 
 use crate::file::File;
 
@@ -49,21 +48,40 @@ fn unexpected_pair(pair: &Pair<Rule>) {
 }
 
 fn main() -> Result<(), Error<Rule>> {
-    let args: Vec<String> = args().collect();
+    let mut emit_ast = false;
+    let mut emit_llvm = false;
+    let mut file_name = String::new();
 
-    let filename = args[1].clone();
+    {
+        let mut ap = ArgumentParser::new();
 
-    let file = File::read_file(filename.as_str())?;
+        ap.refer(&mut emit_ast)
+            .add_option(&["--emit-ast"], StoreTrue, "Emit LLVM IR");
 
-    println!("AST: {:#?}", file);
-    println!("CODE:");
+        ap.refer(&mut emit_llvm)
+            .add_option(&["--emit-llvm"], StoreTrue, "Name for the greeting");
+
+        ap.refer(&mut file_name)
+            .add_argument("file", Store, "File to parse")
+            .required();
+
+        ap.parse_args_or_exit();
+    }
+
+    let file = File::read_file(file_name.as_str())?;
+
+    if emit_ast {
+        println!("{:#?}", file);
+    }
 
     let mut out = std::io::stdout();
 
     let mut context: IRContext = Default::default();
 
-    file.ir(&mut out, &mut context)
-        .expect("Failed writing to stdout");
+    if emit_llvm {
+        file.ir(&mut out, &mut context)
+            .expect("Failed writing to stdout");
+    }
 
     Ok(())
 }

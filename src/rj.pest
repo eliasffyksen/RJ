@@ -27,10 +27,15 @@ block = {
 stmt = {
   var_decl
   | func_ret
+  | assign
 }
 
 func_ret = {
   "return" ~ expr?
+}
+
+assign = {
+  ident ~ ("," ~ ident)* ~ "=" ~ expr
 }
 
 expr = {
