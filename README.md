@@ -14,33 +14,37 @@ It successfully compiles to to LLVM IR.
 
 file `example/main.rj`:
 ```
-fn main() {
-  a: i32
+fn test(a: i32): i32, i32, i32 {
   b: i32
+  b = 666
+  return a, b, 123
 }
 
-fn test() {
-
-}
 ```
 
-Compiled with `cargo run example/main.rj` compiles to:
+Compiled with `cargo run example/main.rj --emit-llvm` compiles to:
 ```
-source_filename = "example/main.rj"
+source_filename = "example/test.rj"
 
-define void @main() {
-  %1 = alloca i32
-  %2 = alloca i32
-  ret void
-}
+define void @test(i32* %0, i32* %1, i32* %2, i32 %3) {
+  %5 = alloca i32
+  store i32 %3, i32* %5
+  %6 = alloca i32
 
-define void @test() {
+  store i32 666, i32* %6
+
+  %7 = load i32, i32* %5
+  store i32 %7, i32* %0
+  %8 = load i32, i32* %6
+  store i32 %8, i32* %1
+  store i32 123, i32* %2
+
   ret void
 }
 ```
 
 ### Bad news
 
-Currently it only support function definitions and variable declarations,
-so good luck writing the next hottest tinder clone in this (almost) turing
-complete language.
+Currently it only support function definitions and variable declarations, returns, and
+constant assignments, so good luck writing the next hottest tinder clone in this
+(almost) turing complete language.
