@@ -3,6 +3,9 @@
   "displayName": "RJ Language Support",
   "description": "Language Support for RJ",
   "version": "0.0.1",
+  "scripts": {
+    "install": "cp -r ../rj-language-support ~/.vscode/extensions/"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },

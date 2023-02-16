@@ -10,6 +10,9 @@
 		},
 		{
 			"include": "#strings"
+		},
+		{
+			"include": "#decimal"
 		}
 	],
 	"repository": {
@@ -27,6 +30,14 @@
 				"name": "entity.name.type",
 				"match": "\\b(i32)\\b"
 			}]
+		},
+		"decimal": {
+			"patterns": [
+				{
+					"name": "constant.numeric.decimal.rj",
+					"match": "\\b(\\d+)\\b"
+				}
+			]
 		},
 		"strings": {
 			"name": "string.quoted.double.rj",

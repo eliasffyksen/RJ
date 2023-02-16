@@ -1,13 +1,15 @@
 #include <stdio.h>
 
-void test(int *, int *, int *, int *, int, int);
+void test(int *);
+
+int random() {
+  return 666;
+}
 
 int main() {
-  int a, b, c, d, e, f;
-  a = 5;
-  b = 6;
+  int a;
 
-  test(&c, &d, &e, &f, a, b);
+  test(&a);
 
-  printf("%d %d %d %d %d %d!\n", a, b, c, d, e, f);
+  printf("%d!\n", a);
 }

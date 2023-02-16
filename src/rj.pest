@@ -44,6 +44,11 @@ expr = {
 
 expr_elm = {
   ident
+  | int
+}
+
+int = @{
+  "-"? ~ '0'..'9'+
 }
 
 var_decl = {

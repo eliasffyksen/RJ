@@ -9,6 +9,7 @@ mod function;
 mod ident;
 mod scope;
 mod stmt;
+mod const_data;
 
 use crate::file::File;
 

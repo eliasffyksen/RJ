@@ -1,5 +1,6 @@
 use pest::iterators::Pair;
 
+use crate::const_data::{Const, ConstImpl};
 use crate::ident::{Ident, IdentImpl};
 use crate::scope::Scopable;
 use crate::stmt::Type;
@@ -18,6 +19,7 @@ pub struct ExpressionOutput {
 #[derive(Debug)]
 pub enum Expression {
     Ident(Ident),
+    Const(Const),
 }
 
 impl Expression {
@@ -43,6 +45,7 @@ impl Expression {
         for pair in pair.into_inner() {
             match pair.as_rule() {
                 Rule::ident => return Expression::Ident(Ident::ast(pair)),
+                Rule::int => return Expression::Const(Const::ast(pair)),
 
                 _ => unexpected_pair(&pair),
             }
@@ -62,10 +65,38 @@ impl Expression {
             Expression::Ident(ident) => {
                 Self::ir_ident(ident, output, context, scope, expression_input)
             }
+            Expression::Const(const_data) => {
+                Self::ir_const(const_data, output, expression_input)
+            }
         }
     }
 
-    pub fn ir_ident(
+    fn ir_const(
+        const_data: &Const,
+        output: &mut impl std::io::Write,
+        expression_input: ExpressionInput,
+    ) -> Result<Option<ExpressionOutput>, std::io::Error> {
+        if Type::I32 != expression_input.data_type {
+            panic!(
+                "Incompatible data, expected {:?} got i32",
+                expression_input.data_type
+            );
+        }
+
+        match expression_input.store_to {
+            Some(store_register) => {
+                writeln!(
+                    output,
+                    "  store i32 {}, i32* %{}",
+                    const_data, store_register,
+                )?;
+                Ok(None)
+            }
+            None => todo!(),
+        }
+    }
+
+    fn ir_ident(
         ident: &Ident,
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
