@@ -1,0 +1,8 @@
+
+fn test(ret_val: i32): i32 {
+  return ret_val
+}
+
+fn main(): i32 {
+  return test(0)
+}

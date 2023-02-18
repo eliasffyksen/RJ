@@ -1,4 +1,5 @@
 use std::slice::IterMut;
+use std::fmt::Write as _;
 
 use pest::iterators::Pair;
 
@@ -11,7 +12,7 @@ use crate::{check_rule, unexpected_pair, Rule};
 
 pub struct ExpressionInput {
     pub data_type: Type,
-    pub store_to: Option<usize>,
+    pub store_to: Option<String>,
 }
 
 #[derive(Debug)]
@@ -130,11 +131,11 @@ impl Expression {
             );
         }
 
-        match expression_input.store_to {
+        match &expression_input.store_to {
             Some(store_register) => {
                 writeln!(
                     output,
-                    "  store i32 {}, i32* %{}",
+                    "  store i32 {}, {}",
                     const_data, store_register,
                 )?;
                 Ok(())
@@ -179,17 +180,18 @@ impl Expression {
                     src_register
                 )?;
 
-                if let Some(store_to) = expression_input.store_to {
+                if let Some(store_to) = &expression_input.store_to {
                     writeln!(
                         output,
-                        "  store {} %{}, {}* %{}",
+                        "  store {} %{}, {}",
                         var_type.get_ir_type(),
                         dst_register,
-                        var_type.get_ir_type(),
                         store_to,
                     )
                 } else {
-                    expression_input.store_to = Some(dst_register);
+                    let mut store_to = String::new();
+                    write!(&mut store_to, "{} %{}", var_type.get_ir_type(), dst_register).unwrap();
+                    expression_input.store_to = Some( store_to);
                     Ok(())
                 }
             }

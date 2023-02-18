@@ -1,3 +1,6 @@
+
+#![feature(iterator_try_collect)]
+
 use argparse::{ArgumentParser, Store, StoreTrue};
 use pest::error::Error;
 use pest::iterators::Pair;

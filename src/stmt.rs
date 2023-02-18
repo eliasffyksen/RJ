@@ -1,4 +1,5 @@
 use pest::iterators::Pair;
+use std::fmt::Write as _;
 
 use crate::{
     check_rule,
@@ -98,11 +99,19 @@ impl Stmt {
             .get_ret_type()
             .iter()
             .enumerate()
-            .map(|(i, t)| ExpressionInput {
-                data_type: t.clone(),
-                store_to: Some(i),
+            .map(|(i, t)| {
+                let mut store_to = String::new();
+                write!(&mut store_to, "{}* %{}", t.get_ir_type(), i)?;
+
+                let result: Result<_, std::fmt::Error> = Ok(ExpressionInput {
+                    data_type: t.clone(),
+                    store_to: Some(store_to),
+                });
+
+                result
             })
-            .collect();
+            .try_collect::<Vec<ExpressionInput>>()
+            .unwrap();
 
         func_return.ir(output, context, scope, &mut ret_type)
     }
@@ -123,10 +132,21 @@ impl Stmt {
                 };
 
                 match variable {
-                    ScopeEntry::Variable(variable) => ExpressionInput {
-                        data_type: variable.var_decl.var_type.clone(),
-                        store_to: Some(variable.register),
-                    },
+                    ScopeEntry::Variable(variable) => {
+                        let mut store_to = String::new();
+                        write!(
+                            &mut store_to,
+                            "{}* %{}",
+                            variable.var_decl.var_type.get_ir_type(),
+                            variable.register
+                        )
+                        .unwrap();
+
+                        ExpressionInput {
+                            data_type: variable.var_decl.var_type.clone(),
+                            store_to: Some(store_to),
+                        }
+                    }
 
                     _ => panic!(
                         "Expected {} to be variable, but it is {:?}",

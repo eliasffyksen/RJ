@@ -230,7 +230,7 @@ impl FunctionCall {
         for t in function_return.iter() {
             let input = expression_inputs.next().expect("function returns to many values");
 
-            let store_to = match input.store_to {
+            let store_to = match &input.store_to {
                 Some(x) => x,
                 None => todo!(),
             };
@@ -244,7 +244,7 @@ impl FunctionCall {
             }
             first = false;
 
-            write!(output, "{}* %{}", t.get_ir_type(), store_to)?;
+            write!(output, "{}", store_to)?;
         }
 
         for input in function_inputs {
@@ -258,7 +258,7 @@ impl FunctionCall {
             }
             first = false;
 
-            write!(output, "{} %{}", input.data_type.get_ir_type(), store_to)?;
+            write!(output, "{}", store_to)?;
         }
 
         writeln!(output, ")")?;
