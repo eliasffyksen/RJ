@@ -1,10 +1,8 @@
-use std::iter;
-
 use pest::iterators::Pair;
 
 use crate::{
     check_rule,
-    expression::{Expression, ExpressionInput},
+    expression::{ExpressionInput, ExpressionList},
     ident::{Ident, IdentImpl},
     scope::{Scopable, ScopeEntry},
     unexpected_pair, Rule,
@@ -13,8 +11,8 @@ use crate::{
 #[derive(Debug)]
 pub enum Stmt {
     VarDecl(VarDecl),
-    FuncReturn(Vec<Expression>),
-    Assign((Vec<Ident>, Vec<Expression>)),
+    FuncReturn(ExpressionList),
+    Assign((Vec<Ident>, ExpressionList)),
 }
 
 impl Stmt {
@@ -41,7 +39,7 @@ impl Stmt {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::expr => return Stmt::FuncReturn(Expression::ast(pair)),
+                Rule::expr_list => return Stmt::FuncReturn(ExpressionList::ast(pair)),
 
                 _ => unexpected_pair(&pair),
             }
@@ -57,7 +55,7 @@ impl Stmt {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::expr => return Self::Assign((identifiers, Expression::ast(pair))),
+                Rule::expr_list => return Self::Assign((identifiers, ExpressionList::ast(pair))),
                 Rule::ident => identifiers.push(Ident::ast(pair)),
 
                 _ => unexpected_pair(&pair),
@@ -77,7 +75,9 @@ impl Stmt {
             Stmt::VarDecl(var_decl) => {
                 var_decl.ir(output, context, scope)?;
             }
+
             Stmt::FuncReturn(func_return) => Self::ir_return(func_return, output, context, scope)?,
+
             Stmt::Assign((identifiers, expressions)) => {
                 Self::ir_assign(identifiers, expressions, output, context, scope)?
             }
@@ -89,75 +89,47 @@ impl Stmt {
     }
 
     pub fn ir_return(
-        func_return: &Vec<Expression>,
+        func_return: &ExpressionList,
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
     ) -> Result<(), std::io::Error> {
-        let ret_type = scope.get_ret_type().clone();
+        let mut ret_type = scope
+            .get_ret_type()
+            .iter()
+            .enumerate()
+            .map(|(i, t)| ExpressionInput {
+                data_type: t.clone(),
+                store_to: Some(i),
+            })
+            .collect();
 
-        if ret_type.len() != func_return.len() {
-            panic!(
-                "Incorrect return count, expected {} values got {}",
-                ret_type.len(),
-                func_return.len(),
-            )
-        }
-
-        for (dst_register, (ret_type, expression)) in iter::zip(ret_type, func_return).enumerate() {
-            match expression.ir(
-                output,
-                context,
-                scope,
-                ExpressionInput {
-                    data_type: ret_type.clone(),
-                    store_to: Some(dst_register),
-                },
-            )? {
-                Some(_) => panic!("Return expression returned data"),
-                None => (),
-            }
-        }
-
-        Ok(())
+        func_return.ir(output, context, scope, &mut ret_type)
     }
 
     pub fn ir_assign(
         identifiers: &Vec<Ident>,
-        expressions: &Vec<Expression>,
+        expressions: &ExpressionList,
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
     ) -> Result<(), std::io::Error> {
-        if identifiers.len() != expressions.len() {
-            panic!(
-                "Incorrect assignment count, expected {} values got {}",
-                identifiers.len(),
-                expressions.len(),
-            )
-        }
+        let mut expression_inputs = identifiers
+            .iter()
+            .map(|ident| {
+                let variable = match scope.get_entry(ident) {
+                    Some(variable) => variable,
+                    None => panic!("No variable in scope by name {}", ident),
+                };
 
-        for (identifier, expression) in iter::zip(identifiers, expressions) {
-            let variable = match scope.get_entry(identifier) {
-                Some(entry) => entry,
-                None => panic!("Identifier not available in scope {}", identifier),
-            };
-
-            match expression.ir(
-                output,
-                context,
-                scope,
                 ExpressionInput {
                     data_type: variable.var_decl.var_type.clone(),
                     store_to: Some(variable.register),
-                },
-            )? {
-                Some(_) => panic!("Return expression returned data"),
-                None => (),
-            }
-        }
+                }
+            })
+            .collect();
 
-        Ok(())
+        expressions.ir(output, context, scope, &mut expression_inputs)
     }
 }
 

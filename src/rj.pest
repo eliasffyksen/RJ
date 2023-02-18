@@ -31,14 +31,14 @@ stmt = {
 }
 
 func_ret = {
-  "return" ~ expr?
+  "return" ~ expr_list?
 }
 
 assign = {
-  ident ~ ("," ~ ident)* ~ "=" ~ expr
+  ident ~ ("," ~ ident)* ~ "=" ~ expr_list
 }
 
-expr = {
+expr_list = {
   expr_elm ~ ("," ~ expr_elm)*
 }
 

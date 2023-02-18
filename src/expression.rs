@@ -1,3 +1,5 @@
+use std::iter;
+
 use pest::iterators::Pair;
 
 use crate::const_data::{Const, ConstImpl};
@@ -11,35 +13,59 @@ pub struct ExpressionInput {
     pub store_to: Option<usize>,
 }
 
-pub struct ExpressionOutput {
-    pub data_type: Type,
-    pub register: usize,
-}
-
 #[derive(Debug)]
 pub enum Expression {
     Ident(Ident),
     Const(Const),
 }
 
-impl Expression {
-    pub fn ast(pair: Pair<Rule>) -> Vec<Expression> {
-        check_rule(&pair, Rule::expr);
+#[derive(Debug)]
+pub struct ExpressionList {
+    expressions: Vec<Expression>,
+}
+
+impl ExpressionList {
+    pub fn ast(pair: Pair<Rule>) -> Self {
+        check_rule(&pair, Rule::expr_list);
 
         let mut expressions = vec![];
 
         for element in pair.into_inner() {
             match element.as_rule() {
-                Rule::expr_elm => expressions.push(Self::ast_expression_element(element)),
+                Rule::expr_elm => expressions.push(Expression::ast(element)),
 
                 _ => unexpected_pair(&element),
             }
         }
 
-        expressions
+        Self { expressions }
     }
 
-    fn ast_expression_element(pair: Pair<Rule>) -> Expression {
+    pub fn ir(
+        &self,
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+        expression_inputs: &mut Vec<ExpressionInput>,
+    ) -> Result<(), std::io::Error> {
+        if expression_inputs.len() != self.expressions.len() {
+            panic!(
+                "Incorrect expression list count, expected {} values got {}",
+                expression_inputs.len(),
+                self.expressions.len(),
+            )
+        }
+
+        for (expression_input, expression) in iter::zip(expression_inputs, &self.expressions) {
+            expression.ir(output, context, scope, expression_input)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Expression {
+    fn ast(pair: Pair<Rule>) -> Self {
         check_rule(&pair, Rule::expr_elm);
 
         for pair in pair.into_inner() {
@@ -59,8 +85,8 @@ impl Expression {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-        expression_input: ExpressionInput,
-    ) -> Result<Option<ExpressionOutput>, std::io::Error> {
+        expression_input: &mut ExpressionInput,
+    ) -> Result<(), std::io::Error> {
         match self {
             Expression::Ident(ident) => {
                 Self::ir_ident(ident, output, context, scope, expression_input)
@@ -74,8 +100,8 @@ impl Expression {
     fn ir_const(
         const_data: &Const,
         output: &mut impl std::io::Write,
-        expression_input: ExpressionInput,
-    ) -> Result<Option<ExpressionOutput>, std::io::Error> {
+        expression_input: &mut ExpressionInput,
+    ) -> Result<(), std::io::Error> {
         if Type::I32 != expression_input.data_type {
             panic!(
                 "Incompatible data, expected {:?} got i32",
@@ -90,7 +116,7 @@ impl Expression {
                     "  store i32 {}, i32* %{}",
                     const_data, store_register,
                 )?;
-                Ok(None)
+                Ok(())
             }
             None => todo!(),
         }
@@ -101,8 +127,8 @@ impl Expression {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-        expression_input: ExpressionInput,
-    ) -> Result<Option<ExpressionOutput>, std::io::Error> {
+        expression_input: &mut ExpressionInput,
+    ) -> Result<(), std::io::Error> {
         match scope.get_entry(ident) {
             Some(scope_entry) => {
                 let var_type = scope_entry.var_decl.var_type.clone();
@@ -126,22 +152,18 @@ impl Expression {
                     src_register
                 )?;
 
-                match expression_input.store_to {
-                    Some(store_register) => {
-                        writeln!(
-                            output,
-                            "  store {} %{}, {}* %{}",
-                            var_type.get_ir_type(),
-                            dst_register,
-                            var_type.get_ir_type(),
-                            store_register,
-                        )?;
-                        Ok(None)
-                    }
-                    None => Ok(Some(ExpressionOutput {
-                        data_type: var_type,
-                        register: dst_register,
-                    })),
+                if let Some(store_to) = expression_input.store_to {
+                    writeln!(
+                        output,
+                        "  store {} %{}, {}* %{}",
+                        var_type.get_ir_type(),
+                        dst_register,
+                        var_type.get_ir_type(),
+                        store_to,
+                    )
+                } else {
+                    expression_input.store_to = Some(dst_register);
+                    Ok(())
                 }
             }
             None => panic!("Unknown identifier: {:?}", ident),
