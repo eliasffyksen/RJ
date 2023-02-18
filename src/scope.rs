@@ -57,7 +57,7 @@ where
     T: Scopable,
 {
     fn set_entry(&mut self, scope_entry: ScopeEntry) {
-        let key = &scope_entry.var_decl.ident;
+        let key = scope_entry.get_ident();
         if self.entries.contains_key(key) {
             panic!(
                 "Attempted to set same variable in same scope twice: {:?}",
@@ -65,7 +65,7 @@ where
             );
         }
 
-        self.entries.insert(key.clone(), scope_entry);
+        self.entries.insert(key.to_string(), scope_entry);
     }
 
     fn get_entry(&self, ident: &Ident) -> Option<&ScopeEntry> {
@@ -88,7 +88,29 @@ where
 }
 
 #[derive(Debug)]
-pub struct ScopeEntry {
+pub struct ScopeVariable {
     pub var_decl: VarDecl,
     pub register: usize,
+}
+
+#[derive(Debug)]
+pub struct ScopeFunction {
+    pub name: Ident,
+    pub args: Vec<Type>,
+    pub returns: Vec<Type>,
+}
+
+#[derive(Debug)]
+pub enum ScopeEntry {
+    Variable(ScopeVariable),
+    Function(ScopeFunction),
+}
+
+impl ScopeEntry {
+    fn get_ident(&self) -> &str {
+        match self {
+            ScopeEntry::Variable(variable) => variable.var_decl.ident.as_str(),
+            ScopeEntry::Function(function) => function.name.as_str(),
+        }
+    }
 }

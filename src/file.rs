@@ -10,6 +10,10 @@ use crate::function::Function;
 use crate::RJParser;
 use crate::Rule;
 use crate::ident::Ident;
+use crate::scope::NonScope;
+use crate::scope::Scopable;
+use crate::scope::ScopeEntry;
+use crate::scope::ScopeFunction;
 
 #[derive(Debug, Default)]
 pub struct File {
@@ -45,8 +49,20 @@ impl File {
         writeln!(out, "source_filename = \"{}\"", self.name)?;
         writeln!(out)?;
 
+        let mut scope = NonScope{}.new_scope();
+
+        for (ident, function) in &self.functions {
+            scope.set_entry(ScopeEntry::Function(ScopeFunction{
+                name: ident.clone(),
+                args: function.args.iter().map(|arg| arg.var_type.clone()).collect(),
+                returns: function.ret_type.iter().map(|t| t.clone()).collect(),
+            }))
+        }
+
+        let scope = scope;
+
         for (_, function) in &self.functions {
-            function.ir(out, context)?;
+            function.ir(out, context, &scope)?;
             writeln!(out)?;
         }
 

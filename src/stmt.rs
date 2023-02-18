@@ -4,7 +4,7 @@ use crate::{
     check_rule,
     expression::{ExpressionInput, ExpressionList},
     ident::{Ident, IdentImpl},
-    scope::{Scopable, ScopeEntry},
+    scope::{Scopable, ScopeEntry, ScopeVariable},
     unexpected_pair, Rule,
 };
 
@@ -122,9 +122,16 @@ impl Stmt {
                     None => panic!("No variable in scope by name {}", ident),
                 };
 
-                ExpressionInput {
-                    data_type: variable.var_decl.var_type.clone(),
-                    store_to: Some(variable.register),
+                match variable {
+                    ScopeEntry::Variable(variable) => ExpressionInput {
+                        data_type: variable.var_decl.var_type.clone(),
+                        store_to: Some(variable.register),
+                    },
+
+                    _ => panic!(
+                        "Expected {} to be variable, but it is {:?}",
+                        ident, variable
+                    ),
                 }
             })
             .collect();
@@ -180,10 +187,10 @@ impl VarDecl {
             self.var_type.get_ir_type()
         )?;
 
-        scope.set_entry(ScopeEntry {
+        scope.set_entry(ScopeEntry::Variable(ScopeVariable {
             var_decl: self.clone(),
             register,
-        });
+        }));
 
         Ok(register)
     }
@@ -192,12 +199,14 @@ impl VarDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     I32,
+    Any,
 }
 
 impl Type {
     pub fn get_ir_type(&self) -> &'static str {
         match self {
             Type::I32 => "i32",
+            Type::Any => panic!("Attempted to get llvm ir type of Any!"),
         }
     }
 

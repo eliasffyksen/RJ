@@ -14,7 +14,7 @@ impl Block {
         &self,
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
-        scope: &mut (impl Scopable + std::fmt::Debug),
+        scope: &(impl Scopable + std::fmt::Debug),
     ) -> Result<(), std::io::Error> {
         let mut scope = scope.new_scope();
 

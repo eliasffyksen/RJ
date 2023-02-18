@@ -12,8 +12,6 @@ test: $(TESTS:%=test.%)
 test.%: $(BUILD_PATH)/test/%
 	$^
 
-.PRECIOUS: $(TEST_BINS)
-
 .PHONY: clean
 clean:
 	rm -fr ./build/*

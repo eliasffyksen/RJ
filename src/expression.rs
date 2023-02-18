@@ -1,10 +1,11 @@
-use std::iter;
+use std::slice::IterMut;
 
 use pest::iterators::Pair;
 
 use crate::const_data::{Const, ConstImpl};
+use crate::function::FunctionCall;
 use crate::ident::{Ident, IdentImpl};
-use crate::scope::Scopable;
+use crate::scope::{Scopable, ScopeEntry};
 use crate::stmt::Type;
 use crate::{check_rule, unexpected_pair, Rule};
 
@@ -17,11 +18,12 @@ pub struct ExpressionInput {
 pub enum Expression {
     Ident(Ident),
     Const(Const),
+    FunctionCall(FunctionCall),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExpressionList {
-    expressions: Vec<Expression>,
+    pub expressions: Vec<Expression>,
 }
 
 impl ExpressionList {
@@ -56,8 +58,10 @@ impl ExpressionList {
             )
         }
 
-        for (expression_input, expression) in iter::zip(expression_inputs, &self.expressions) {
-            expression.ir(output, context, scope, expression_input)?;
+        let mut expression_inputs = expression_inputs.iter_mut();
+
+        for expression in &self.expressions {
+            expression.ir(output, context, scope, &mut expression_inputs)?;
         }
 
         Ok(())
@@ -72,6 +76,7 @@ impl Expression {
             match pair.as_rule() {
                 Rule::ident => return Expression::Ident(Ident::ast(pair)),
                 Rule::int => return Expression::Const(Const::ast(pair)),
+                Rule::func_call => return Expression::FunctionCall(FunctionCall::ast(pair)),
 
                 _ => unexpected_pair(&pair),
             }
@@ -85,15 +90,31 @@ impl Expression {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-        expression_input: &mut ExpressionInput,
+        expression_inputs: &mut IterMut<ExpressionInput>,
     ) -> Result<(), std::io::Error> {
+        let mut none_input = ExpressionInput{
+                        data_type: Type::Any,
+                        store_to: None,
+        };
+
         match self {
             Expression::Ident(ident) => {
+                let expression_input = expression_inputs.next()
+                    .unwrap_or(&mut none_input);
+
                 Self::ir_ident(ident, output, context, scope, expression_input)
             }
+
             Expression::Const(const_data) => {
+                let expression_input = expression_inputs.next()
+                    .unwrap_or(&mut none_input);
+
                 Self::ir_const(const_data, output, expression_input)
             }
+
+            Expression::FunctionCall(function_call) => {
+                function_call.ir(output, context, scope, expression_inputs)
+            },
         }
     }
 
@@ -131,6 +152,12 @@ impl Expression {
     ) -> Result<(), std::io::Error> {
         match scope.get_entry(ident) {
             Some(scope_entry) => {
+                let scope_entry = match scope_entry {
+                    ScopeEntry::Variable(variable) => variable,
+
+                    _ => panic!("expected {} to be variable, instead it is {:?}", ident, scope_entry),
+                };
+
                 let var_type = scope_entry.var_decl.var_type.clone();
 
                 if var_type != expression_input.data_type {

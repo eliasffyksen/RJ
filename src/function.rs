@@ -1,21 +1,25 @@
+use std::fmt;
+use std::slice::IterMut;
+
 use pest::iterators::Pair;
 
 use crate::block::Block;
-use crate::scope::{NonScope, Scopable};
-use crate::stmt::{VarDecl, Type};
-use crate::{Rule, IRContext, check_rule, unexpected_pair};
+use crate::expression::{ExpressionInput, ExpressionList};
 use crate::ident::{Ident, IdentImpl};
+use crate::scope::{Scopable, ScopeEntry};
+use crate::stmt::{Type, VarDecl};
+use crate::{check_rule, unexpected_pair, IRContext, Rule};
 
 #[derive(Debug, Default)]
 pub struct Function {
     pub name: Option<Ident>,
     pub block: Block,
-    args: Vec<VarDecl>,
-    ret_type: Vec<Type>,
+    pub args: Vec<VarDecl>,
+    pub ret_type: Vec<Type>,
 }
 
 impl Function {
-    pub fn ast(pair: Pair<Rule>) -> Function {
+    pub fn ast(pair: Pair<Rule>) -> Self {
         check_rule(&pair, Rule::func);
 
         let mut function: Function = Default::default();
@@ -27,7 +31,7 @@ impl Function {
                 Rule::block => function.block = Block::ast(pair),
                 Rule::ret_type => function.ast_ret_type(pair),
 
-                _ => panic!("Invalid pair in function: {:?}", pair)
+                _ => panic!("Invalid pair in function: {:?}", pair),
             }
         }
 
@@ -41,7 +45,7 @@ impl Function {
             match pair.as_rule() {
                 Rule::var_decl => self.args.push(VarDecl::ast(pair)),
 
-                _ => unexpected_pair(&pair)
+                _ => unexpected_pair(&pair),
             }
         }
     }
@@ -58,7 +62,12 @@ impl Function {
         }
     }
 
-    pub fn ir(&self, output: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
+    pub fn ir(
+        &self,
+        output: &mut impl std::io::Write,
+        context: &mut IRContext,
+        scope: &(impl Scopable + fmt::Debug),
+    ) -> Result<(), std::io::Error> {
         let name = match &self.name {
             Some(name) => name,
             _ => panic!(
@@ -67,7 +76,7 @@ impl Function {
             ),
         };
 
-        let mut scope = NonScope{}.new_scope();
+        let mut scope = scope.new_scope();
 
         scope.set_ret_type(self.ret_type.clone());
 
@@ -84,11 +93,11 @@ impl Function {
     }
 
     fn ir_args(
-        &self, output: &mut impl std::io::Write,
+        &self,
+        output: &mut impl std::io::Write,
         context: &mut IRContext,
-        scope: &mut impl Scopable
-    )-> Result<(), std::io::Error> {
-
+        scope: &mut impl Scopable,
+    ) -> Result<(), std::io::Error> {
         write!(output, "(")?;
 
         context.clear_register();
@@ -104,10 +113,7 @@ impl Function {
                 write!(output, ", ")?;
             }
 
-            arguments.push((
-                arg.clone(),
-                register
-            ));
+            arguments.push((arg.clone(), register));
 
             write!(output, "{} %{}", arg.var_type.get_ir_type(), register)?;
         }
@@ -119,7 +125,9 @@ impl Function {
         for (arg, input_register) in arguments {
             let output_register = arg.ir(output, context, scope)?;
 
-            writeln!(output, "  store {} %{}, {}* %{}",
+            writeln!(
+                output,
+                "  store {} %{}, {}* %{}",
                 arg.var_type.get_ir_type(),
                 input_register,
                 arg.var_type.get_ir_type(),
@@ -131,10 +139,10 @@ impl Function {
     }
 
     fn ir_ret_type(
-        &self, output: &mut impl std::io::Write,
+        &self,
+        output: &mut impl std::io::Write,
         context: &mut IRContext,
-    )-> Result<(), std::io::Error> {
-
+    ) -> Result<(), std::io::Error> {
         for var_type in &self.ret_type {
             let register = context.claim_register();
 
@@ -144,6 +152,116 @@ impl Function {
 
             write!(output, "{}* %{}", var_type.get_ir_type(), register)?;
         }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionCall {
+    identifier: Ident,
+    expressions: ExpressionList,
+}
+
+impl FunctionCall {
+    pub fn ast(pair: Pair<Rule>) -> Self {
+        check_rule(&pair, Rule::func_call);
+
+        let mut identifier = None;
+        let mut expressions = None;
+
+        for pair in pair.into_inner() {
+            match pair.as_rule() {
+                Rule::ident => identifier = Some(Ident::ast(pair)),
+                Rule::expr_list => expressions = Some(ExpressionList::ast(pair)),
+
+                _ => unexpected_pair(&pair),
+            }
+        }
+
+        Self {
+            identifier: identifier.expect("No identifier in func call!"),
+            expressions: expressions.unwrap_or(Default::default()),
+        }
+    }
+
+    pub fn ir(
+        &self,
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        scope: &mut impl Scopable,
+        expression_inputs: &mut IterMut<ExpressionInput>,
+    ) -> Result<(), std::io::Error> {
+        let function = scope
+            .get_entry(&self.identifier)
+            .expect("Function not in scope");
+        let function = match function {
+            ScopeEntry::Function(x) => x,
+
+            _ => panic!(
+                "Expected {} to be function, but is {:?}",
+                self.identifier, function
+            ),
+        };
+
+        if self.expressions.expressions.len() != function.args.len() {
+            panic!(
+                "Function {} takes {} arguments, {} were given",
+                function.name,
+                function.args.len(),
+                self.expressions.expressions.len(),
+            )
+        }
+
+        let mut function_inputs = function.args.iter().map(|t| ExpressionInput {
+            data_type: t.clone(),
+            store_to: None,
+        }).collect();
+
+        let function_name = function.name.clone();
+        let function_return = function.returns.clone();
+
+        self.expressions.ir(output, context, scope, &mut function_inputs)?;
+
+        write!(output, "  call void @{}(", function_name)?;
+
+        let mut first = true;
+
+        for t in function_return.iter() {
+            let input = expression_inputs.next().expect("function returns to many values");
+
+            let store_to = match input.store_to {
+                Some(x) => x,
+                None => todo!(),
+            };
+
+            if &input.data_type != t {
+                panic!("Expected type {:?}, got {:?}", input.data_type, t);
+            }
+
+            if !first {
+                writeln!(output, ", ")?;
+            }
+            first = false;
+
+            write!(output, "{}* %{}", t.get_ir_type(), store_to)?;
+        }
+
+        for input in function_inputs {
+            let store_to = match input.store_to {
+                Some(x) => x,
+                None => todo!(),
+            };
+
+            if !first {
+                write!(output, ", ")?;
+            }
+            first = false;
+
+            write!(output, "{} %{}", input.data_type.get_ir_type(), store_to)?;
+        }
+
+        writeln!(output, ")")?;
 
         Ok(())
     }

@@ -43,12 +43,17 @@ expr_list = {
 }
 
 expr_elm = {
-  ident
+  func_call
   | int
+  | ident
 }
 
 int = @{
   "-"? ~ '0'..'9'+
+}
+
+func_call = {
+  ident ~ "(" ~ expr_list? ~ ")"
 }
 
 var_decl = {
