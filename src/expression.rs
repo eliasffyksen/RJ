@@ -138,10 +138,15 @@ impl Expression {
                     "  store i32 {}, {}",
                     const_data, store_register,
                 )?;
-                Ok(())
             }
-            None => todo!(),
+            None => {
+                let mut store_to = String::new();
+                write!(&mut store_to, "i32 {}", const_data).unwrap();
+                expression_input.store_to = Some(store_to);
+            },
         }
+
+        Ok(())
     }
 
     fn ir_ident(
