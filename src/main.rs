@@ -17,6 +17,8 @@ mod scope;
 mod stmt;
 mod const_data;
 mod symbol_ref;
+mod if_stmt;
+mod ast_type;
 
 use crate::file::File;
 
@@ -53,11 +55,6 @@ fn check_rule(pair: &Pair<Rule>, rule: Rule) {
 
 fn unexpected_pair(pair: &Pair<Rule>) {
     panic!("Unexpected pair {:?}", pair);
-}
-
-fn compiler_error(message: &str, symbol: &SymbolRef) -> ! {
-    writeln!(std::io::stderr(), "{}: Error: {}", symbol, message);
-    panic!("COMPILER ERROR");
 }
 
 fn main() -> Result<(), Error<Rule>> {
@@ -99,8 +96,7 @@ fn main() -> Result<(), Error<Rule>> {
     let mut context: IRContext = Default::default();
 
     if emit_llvm {
-        file.ir(&mut out, &mut context)
-            .expect("Failed writing to stdout");
+        file.ir(&mut out, &mut context);
     }
 
     Ok(())

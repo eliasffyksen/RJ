@@ -29,9 +29,10 @@ stmt = {
   | func_ret
   | assign
   | func_call
+  | if_stmt
 }
 
-if = {
+if_stmt = {
   "if" ~ expr_elm ~ block
 }
 

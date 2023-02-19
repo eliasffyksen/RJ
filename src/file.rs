@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs::read_to_string;
+use std::io;
 
 use pest::error::Error;
 use pest::iterators::Pair;
@@ -46,9 +47,9 @@ impl File {
         self.functions.insert(name.get().to_string(), function);
     }
 
-    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
-        writeln!(out, "source_filename = \"{}\"", self.name)?;
-        writeln!(out)?;
+    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) {
+        writeln!(out, "source_filename = \"{}\"", self.name).unwrap();
+        writeln!(out).unwrap();
 
         let mut scope = NonScope{}.new_scope();
 
@@ -65,11 +66,14 @@ impl File {
         let scope = scope;
 
         for (_, function) in &self.functions {
-            function.ir(out, context, &scope)?;
-            writeln!(out)?;
+            match function.ir(out, context, &scope) {
+                Ok(_) => (),
+                Err(err) => {
+                    err.display(&mut io::stderr(), &self.name, &self.input)
+                },
+            }
+            writeln!(out).unwrap();
         }
-
-        Ok(())
     }
 
     pub fn ast(pair: Pair<Rule>) -> File {

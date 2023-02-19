@@ -2,11 +2,15 @@ use pest::iterators::Pair;
 use std::{fmt::Write as _, vec};
 
 use crate::{
+    ast_type::Type,
     check_rule,
     expression::{ExpressionInput, ExpressionList},
+    function::FunctionCall,
     ident::Ident,
+    if_stmt::If,
     scope::{Scopable, ScopeEntry, ScopeVariable},
-    unexpected_pair, Rule, function::FunctionCall,
+    symbol_ref::SymbolError,
+    unexpected_pair, Rule,
 };
 
 #[derive(Debug)]
@@ -15,6 +19,7 @@ pub enum Stmt {
     FuncReturn(ExpressionList),
     Assign((Vec<Ident>, ExpressionList)),
     FuncCall(FunctionCall),
+    If(If),
 }
 
 impl Stmt {
@@ -29,6 +34,7 @@ impl Stmt {
                 Rule::func_ret => return Self::ast_return(pair),
                 Rule::assign => return Self::ast_assign(pair),
                 Rule::func_call => return Self::FuncCall(FunctionCall::ast(pair)),
+                Rule::if_stmt => return Self::If(If::ast(pair)),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
@@ -73,25 +79,27 @@ impl Stmt {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         match self {
             Stmt::VarDecl(var_decl) => {
-                var_decl.ir(output, context, scope)?;
+                var_decl.ir(output, context, scope).unwrap();
             }
 
             Stmt::FuncReturn(func_return) => Self::ir_return(func_return, output, context, scope)?,
 
             Stmt::Assign((identifiers, expressions)) => {
-                Self::ir_assign(identifiers, expressions, output, context, scope)?
+                Self::ir_assign(identifiers, expressions, output, context, scope)?;
             }
 
             Stmt::FuncCall(function_call) => {
                 let mut empty: Vec<ExpressionInput> = vec![];
-                function_call.ir(output, context, scope, &mut empty.iter_mut())?
-            },
+                function_call.ir(output, context, scope, &mut empty.iter_mut())?;
+            }
+
+            Stmt::If(if_stmt) => if_stmt.ir(output, context, scope)?,
         }
 
-        writeln!(output)?;
+        writeln!(output).unwrap();
 
         Ok(())
     }
@@ -101,7 +109,7 @@ impl Stmt {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         let mut ret_type = scope
             .get_ret_type()
             .iter()
@@ -129,7 +137,7 @@ impl Stmt {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         let mut expression_inputs = identifiers
             .iter()
             .map(|ident| {
@@ -157,7 +165,8 @@ impl Stmt {
 
                     _ => panic!(
                         "Expected {} to be variable, but it is {:?}",
-                        ident.get(), variable
+                        ident.get(),
+                        variable
                     ),
                 }
             })
@@ -220,30 +229,5 @@ impl VarDecl {
         }));
 
         Ok(register)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Type {
-    I32,
-}
-
-impl Type {
-    pub fn get_ir_type(&self) -> &'static str {
-        match self {
-            Type::I32 => "i32",
-        }
-    }
-
-    pub fn ast(pair: pest::iterators::Pair<Rule>) -> Type {
-        if pair.as_rule() != Rule::var_type {
-            panic!("Attempted to generate Type from non Type pair: {:?}", pair)
-        }
-
-        match pair.as_str() {
-            "i32" => Type::I32,
-
-            _ => panic!("Unknown type {:?}", pair),
-        }
     }
 }

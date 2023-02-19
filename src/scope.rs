@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::{
     ident::Ident,
-    stmt::{Type, VarDecl},
+    stmt::VarDecl,
+    ast_type::Type,
 };
 
 pub trait Scopable {

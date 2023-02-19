@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::scope::Scopable;
 use crate::stmt::Stmt;
 use crate::Rule;
+use crate::symbol_ref::SymbolError;
 
 #[derive(Debug, Default)]
 pub struct Block {
@@ -15,7 +16,7 @@ impl Block {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &(impl Scopable + std::fmt::Debug),
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         let mut scope = scope.new_scope();
 
         for statement in &self.statements {

@@ -7,8 +7,9 @@ use crate::block::Block;
 use crate::expression::{ExpressionInput, ExpressionList};
 use crate::ident::Ident;
 use crate::scope::{Scopable, ScopeEntry, ScopeFunction};
-use crate::stmt::{Type, VarDecl};
-use crate::symbol_ref::SymbolRef;
+use crate::stmt::VarDecl;
+use crate::ast_type::Type;
+use crate::symbol_ref::{SymbolRef, SymbolError};
 use crate::{check_rule, unexpected_pair, IRContext, Rule};
 
 #[derive(Debug, Default)]
@@ -70,7 +71,7 @@ impl Function {
         output: &mut impl std::io::Write,
         context: &mut IRContext,
         scope: &(impl Scopable + fmt::Debug),
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         let name = match &self.name {
             Some(name) => name,
             _ => panic!(
@@ -83,14 +84,14 @@ impl Function {
 
         scope.set_ret_type(self.ret_type.clone());
 
-        write!(output, "define void @{}", name.get())?;
+        write!(output, "define void @{}", name.get()).unwrap();
 
-        self.ir_args(output, context, &mut scope)?;
+        self.ir_args(output, context, &mut scope).unwrap();
 
         self.block.ir(output, context, &mut scope)?;
 
-        writeln!(output, "  ret void")?;
-        writeln!(output, "}}")?;
+        writeln!(output, "  ret void").unwrap();
+        writeln!(output, "}}").unwrap();
 
         Ok(())
     }
@@ -194,7 +195,7 @@ impl FunctionCall {
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
         return_data: &mut IterMut<ExpressionInput>,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         let function = self.get_function_from_scope(scope);
 
         let function_name = function.name.clone();
@@ -204,7 +205,7 @@ impl FunctionCall {
         let mut function_inputs = self.generate_function_inputs(function);
 
         self.input_expressions
-            .ir(output, context, scope, &mut function_inputs).unwrap();
+            .ir(output, context, scope, &mut function_inputs)?;
 
         let mut llvm_call_args = vec![];
 
@@ -217,7 +218,7 @@ impl FunctionCall {
             llvm_call_args.push(store_to);
         }
 
-        writeln!(output, "  call void @{}({})", function_name.get(), llvm_call_args.join(", "))?;
+        writeln!(output, "  call void @{}({})", function_name.get(), llvm_call_args.join(", ")).unwrap();
 
         Self::move_temporary_registers(output, temporary_variables, context);
 

@@ -1,14 +1,35 @@
 use std::slice::IterMut;
-use std::fmt::Write as _;
+use std::fmt::{Write as _, Display};
 
 use pest::iterators::Pair;
 
-use crate::const_data::{Const, ConstImpl};
+use crate::const_data::{Const};
 use crate::function::FunctionCall;
 use crate::ident::Ident;
 use crate::scope::{Scopable, ScopeEntry};
-use crate::stmt::Type;
-use crate::{check_rule, unexpected_pair, Rule, compiler_error};
+use crate::ast_type::Type;
+use crate::symbol_ref::{SymbolRef, SymbolError};
+use crate::{check_rule, unexpected_pair, Rule, IRContext};
+
+pub struct ConversionError {
+    from: Type,
+    to: Type
+}
+
+impl ConversionError {
+    pub fn to_symbol_err(self, symbol: &SymbolRef) -> SymbolError {
+        SymbolError {
+            error: Box::new(self),
+            symbol: symbol.clone()
+        }
+    }
+}
+
+impl Display for ConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Can not convert {} to {}", self.from, self.to)
+    }
+}
 
 #[derive(Debug)]
 pub struct ExpressionInput {
@@ -16,11 +37,19 @@ pub struct ExpressionInput {
     pub store_to: Option<String>,
 }
 
-#[derive(Debug)]
-pub enum Expression {
-    Ident(Ident),
-    Const(Const),
-    FunctionCall(FunctionCall),
+impl ExpressionInput {
+    pub fn ir_convert(&self, context: &mut IRContext, from_type: Type, from: &str) -> Result<String, ConversionError> {
+        if self.data_type == from_type {
+            return Ok(from.to_string())
+        }
+
+        match self.data_type {
+            _ => Err(ConversionError {
+                from: from_type,
+                to: self.data_type.clone(),
+            })
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -51,7 +80,7 @@ impl ExpressionList {
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
         expression_inputs: &mut Vec<ExpressionInput>,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         if expression_inputs.len() != self.expressions.len() {
             panic!(
                 "Incorrect expression list count, expected {} values got {}",
@@ -70,8 +99,15 @@ impl ExpressionList {
     }
 }
 
+#[derive(Debug)]
+pub enum Expression {
+    Ident(Ident),
+    Const(Const),
+    FunctionCall(FunctionCall),
+}
+
 impl Expression {
-    fn ast(pair: Pair<Rule>) -> Self {
+    pub fn ast(pair: Pair<Rule>) -> Self {
         check_rule(&pair, Rule::expr_elm);
 
         for pair in pair.into_inner() {
@@ -93,20 +129,21 @@ impl Expression {
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
         expression_inputs: &mut IterMut<ExpressionInput>,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         match self {
             Expression::Ident(ident) => {
                 let expression_input = expression_inputs.next()
                     .expect("Too many values to unpack");
 
-                Self::ir_ident(ident, output, context, scope, expression_input)
+                Self::ir_ident(ident, output, context, scope, expression_input).unwrap();
+                Ok(())
             }
 
             Expression::Const(const_data) => {
                 let expression_input = expression_inputs.next()
                     .expect("Too many values to unpack");
 
-                Self::ir_const(const_data, output, expression_input)
+                const_data.ir(output, context, expression_input)
             }
 
             Expression::FunctionCall(function_call) => {
@@ -115,35 +152,7 @@ impl Expression {
         }
     }
 
-    fn ir_const(
-        const_data: &Const,
-        output: &mut impl std::io::Write,
-        expression_input: &mut ExpressionInput,
-    ) -> Result<(), std::io::Error> {
-        if Type::I32 != expression_input.data_type {
-            panic!(
-                "Incompatible data, expected {:?} got i32",
-                expression_input.data_type
-            );
-        }
 
-        match &expression_input.store_to {
-            Some(store_register) => {
-                writeln!(
-                    output,
-                    "  store i32 {}, {}",
-                    const_data, store_register,
-                )?;
-            }
-            None => {
-                let mut store_to = String::new();
-                write!(&mut store_to, "i32 {}", const_data).unwrap();
-                expression_input.store_to = Some(store_to);
-            },
-        }
-
-        Ok(())
-    }
 
     fn ir_ident(
         ident: &Ident,
