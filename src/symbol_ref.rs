@@ -25,7 +25,7 @@ impl SymbolError {
         writeln!(output, "\n{}", line).unwrap();
 
         let len = self.symbol.end - self.symbol.start;
-        let len = min(len, line.len() - self.symbol.column);
+        let len = min(len, line.len() - self.symbol.column + 1);
 
         writeln!(output, "{}{}\n",
             " ".repeat(self.symbol.column - 1),

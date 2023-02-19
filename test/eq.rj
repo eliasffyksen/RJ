@@ -1,0 +1,12 @@
+
+fn main(): i32 {
+  if 2 == 1 {
+    return 1
+  }
+
+  if 100 == 100 {
+    return 0
+  }
+
+  return 2
+}

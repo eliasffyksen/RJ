@@ -17,6 +17,7 @@ mod const_data;
 mod symbol_ref;
 mod if_stmt;
 mod ast_type;
+mod equal;
 
 use crate::file::File;
 

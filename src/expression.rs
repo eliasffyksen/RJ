@@ -6,6 +6,7 @@ use pest::iterators::Pair;
 
 use crate::ast_type::Type;
 use crate::const_data::Const;
+use crate::equal::Equal;
 use crate::function::FunctionCall;
 use crate::ident::Ident;
 use crate::scope::{Scopable, ScopeEntry};
@@ -40,12 +41,17 @@ pub struct ExpressionInput {
 
 impl ExpressionInput {
     pub fn ir_convert(
-        &self,
+        &mut self,
         output: &mut impl io::Write,
         context: &mut IRContext,
         from_type: Type,
         from: &str,
     ) -> Result<String, ConversionError> {
+        if self.data_type == Type::Any {
+            self.data_type = from_type;
+            return Ok(from.to_string());
+        }
+
         if self.data_type == from_type {
             return Ok(from.to_string());
         }
@@ -133,20 +139,20 @@ pub enum Expression {
     Ident(Ident),
     Const(Const),
     FunctionCall(FunctionCall),
+    Eq(Box<Equal>),
 }
 
 impl Expression {
     pub fn ast(pair: Pair<Rule>) -> Self {
-        check_rule(&pair, Rule::expr_elm);
+        let pair = depred(pair);
 
-        for pair in pair.into_inner() {
-            match pair.as_rule() {
-                Rule::ident => return Expression::Ident(Ident::ast(pair)),
-                Rule::int => return Expression::Const(Const::ast(pair)),
-                Rule::func_call => return Expression::FunctionCall(FunctionCall::ast(pair)),
+        match pair.as_rule() {
+            Rule::ident => return Expression::Ident(Ident::ast(pair)),
+            Rule::int => return Expression::Const(Const::ast(pair)),
+            Rule::func_call => return Expression::FunctionCall(FunctionCall::ast(pair)),
+            Rule::equal => return Expression::Eq(Box::new(Equal::ast(pair))),
 
-                _ => unexpected_pair(&pair),
-            }
+            _ => unexpected_pair(&pair),
         }
 
         panic!("No pair in expression");
@@ -176,6 +182,12 @@ impl Expression {
             Expression::FunctionCall(function_call) => {
                 function_call.ir(output, context, scope, expression_inputs)
             }
+
+            Expression::Eq(equal) => {
+                let expression_input = expression_inputs.next().expect("Too many values to unpack");
+
+                equal.ir(output, context, scope, expression_input)
+            },
         }
     }
 
@@ -245,4 +257,20 @@ impl Expression {
             None => panic!("Unknown identifier: {:?}", ident),
         }
     }
+}
+
+fn depred(pair: Pair<Rule>) -> Pair<Rule> {
+    let mut pair = pair;
+
+    while match pair.as_rule() {
+        Rule::pred_0 => true,
+        Rule::pred_max => true,
+        Rule::expr_elm => true,
+
+        _ => false,
+    } {
+        pair = pair.into_inner().next().unwrap();
+    }
+
+    pair
 }

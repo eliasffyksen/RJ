@@ -49,9 +49,22 @@ expr_list = {
 }
 
 expr_elm = {
+ pred_0
+}
+
+pred_0 = {
+  equal
+  | pred_max
+}
+
+pred_max = {
   func_call
   | int
   | ident
+}
+
+equal = {
+  pred_max ~ "==" ~ pred_max
 }
 
 int = @{

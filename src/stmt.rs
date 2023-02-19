@@ -87,12 +87,12 @@ impl Stmt {
             }
 
             Stmt::FuncReturn(func_return) => {
-                Self::ir_return(func_return, output, context, scope);
+                Self::ir_return(func_return, output, context, scope)?;
                 Ok(true)
             },
 
             Stmt::Assign((identifiers, expressions)) => {
-                Self::ir_assign(identifiers, expressions, output, context, scope);
+                Self::ir_assign(identifiers, expressions, output, context, scope)?;
                 Ok(false)
             }
 

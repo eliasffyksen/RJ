@@ -8,6 +8,7 @@ use crate::Rule;
 pub enum Type {
     I32,
     Bool,
+    Any,
 }
 
 impl Type {
@@ -15,6 +16,7 @@ impl Type {
         match self {
             Type::I32 => "i32",
             Type::Bool => "i1",
+            Type::Any => panic!("Attempted to get ir type of Any"),
         }
     }
 
@@ -36,6 +38,7 @@ impl Display for Type {
         let value = match self {
             Type::I32 => "i32",
             Type::Bool => "bool",
+            Type::Any => panic!("Attempted to get display value of Any"),
         };
 
         write!(f, "{}", value)
