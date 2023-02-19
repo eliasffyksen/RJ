@@ -1,12 +1,12 @@
 use pest::iterators::Pair;
-use std::fmt::Write as _;
+use std::{fmt::Write as _, vec};
 
 use crate::{
     check_rule,
     expression::{ExpressionInput, ExpressionList},
     ident::{Ident, IdentImpl},
     scope::{Scopable, ScopeEntry, ScopeVariable},
-    unexpected_pair, Rule,
+    unexpected_pair, Rule, function::FunctionCall,
 };
 
 #[derive(Debug)]
@@ -14,6 +14,7 @@ pub enum Stmt {
     VarDecl(VarDecl),
     FuncReturn(ExpressionList),
     Assign((Vec<Ident>, ExpressionList)),
+    FuncCall(FunctionCall),
 }
 
 impl Stmt {
@@ -27,6 +28,7 @@ impl Stmt {
                 Rule::var_decl => return Self::VarDecl(VarDecl::ast(pair)),
                 Rule::func_ret => return Self::ast_return(pair),
                 Rule::assign => return Self::ast_assign(pair),
+                Rule::func_call => return Self::FuncCall(FunctionCall::ast(pair)),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
@@ -82,6 +84,11 @@ impl Stmt {
             Stmt::Assign((identifiers, expressions)) => {
                 Self::ir_assign(identifiers, expressions, output, context, scope)?
             }
+
+            Stmt::FuncCall(function_call) => {
+                let mut empty: Vec<ExpressionInput> = vec![];
+                function_call.ir(output, context, scope, &mut empty.iter_mut())?
+            },
         }
 
         writeln!(output)?;
@@ -219,14 +226,12 @@ impl VarDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     I32,
-    Any,
 }
 
 impl Type {
     pub fn get_ir_type(&self) -> &'static str {
         match self {
             Type::I32 => "i32",
-            Type::Any => panic!("Attempted to get llvm ir type of Any!"),
         }
     }
 

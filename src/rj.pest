@@ -28,6 +28,7 @@ stmt = {
   var_decl
   | func_ret
   | assign
+  | func_call
 }
 
 func_ret = {

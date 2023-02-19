@@ -94,22 +94,17 @@ impl Expression {
         scope: &mut impl Scopable,
         expression_inputs: &mut IterMut<ExpressionInput>,
     ) -> Result<(), std::io::Error> {
-        let mut none_input = ExpressionInput{
-                        data_type: Type::Any,
-                        store_to: None,
-        };
-
         match self {
             Expression::Ident(ident) => {
                 let expression_input = expression_inputs.next()
-                    .unwrap_or(&mut none_input);
+                    .expect("Too many values to unpack");
 
                 Self::ir_ident(ident, output, context, scope, expression_input)
             }
 
             Expression::Const(const_data) => {
                 let expression_input = expression_inputs.next()
-                    .unwrap_or(&mut none_input);
+                    .expect("Too many values to unpack");
 
                 Self::ir_const(const_data, output, expression_input)
             }

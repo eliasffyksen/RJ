@@ -198,12 +198,12 @@ impl FunctionCall {
         let (return_variables, temporary_variables) =
             Self::generate_temporary_variables(output, function, return_data, context);
 
-        let mut llvm_call_args = vec![];
-
         let mut function_inputs = self.generate_function_inputs(function);
 
         self.input_expressions
             .ir(output, context, scope, &mut function_inputs).unwrap();
+
+        let mut llvm_call_args = vec![];
 
         for variable in return_variables {
             llvm_call_args.push(variable);

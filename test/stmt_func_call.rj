@@ -1,0 +1,9 @@
+
+fn test() {
+
+}
+
+fn main(): i32 {
+  test()
+  return 0
+}
