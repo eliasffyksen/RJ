@@ -5,13 +5,15 @@ use pest::iterators::Pair;
 
 use crate::block::Block;
 use crate::expression::{ExpressionInput, ExpressionList};
-use crate::ident::{Ident, IdentImpl};
+use crate::ident::Ident;
 use crate::scope::{Scopable, ScopeEntry, ScopeFunction};
 use crate::stmt::{Type, VarDecl};
+use crate::symbol_ref::SymbolRef;
 use crate::{check_rule, unexpected_pair, IRContext, Rule};
 
 #[derive(Debug, Default)]
 pub struct Function {
+    pub symbol: SymbolRef,
     pub name: Option<Ident>,
     pub block: Block,
     pub args: Vec<VarDecl>,
@@ -23,6 +25,7 @@ impl Function {
         check_rule(&pair, Rule::func);
 
         let mut function: Function = Default::default();
+        function.symbol = SymbolRef::from_pair(&pair);
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
@@ -80,7 +83,7 @@ impl Function {
 
         scope.set_ret_type(self.ret_type.clone());
 
-        write!(output, "define void @{}", name)?;
+        write!(output, "define void @{}", name.get())?;
 
         self.ir_args(output, context, &mut scope)?;
 
@@ -214,7 +217,7 @@ impl FunctionCall {
             llvm_call_args.push(store_to);
         }
 
-        writeln!(output, "  call void @{}({})", function_name, llvm_call_args.join(", "))?;
+        writeln!(output, "  call void @{}({})", function_name.get(), llvm_call_args.join(", "))?;
 
         Self::move_temporary_registers(output, temporary_variables, context);
 
@@ -233,14 +236,14 @@ impl FunctionCall {
 
             _ => panic!(
                 "Expected {} to be function, but is {:?}",
-                self.identifier, function
+                self.identifier.get(), function
             ),
         };
 
         if self.input_expressions.expressions.len() != function.args.len() {
             panic!(
                 "Function {} takes {} arguments, {} were given",
-                function.name,
+                function.name.get(),
                 function.args.len(),
                 self.input_expressions.expressions.len(),
             )

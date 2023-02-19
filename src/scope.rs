@@ -47,7 +47,7 @@ impl Scopable for NonScope {
 
 #[derive(Debug)]
 pub struct Scope<'parent, T> {
-    entries: HashMap<Ident, ScopeEntry>,
+    entries: HashMap<String, ScopeEntry>,
     parent: &'parent T,
     ret_type: Option<Vec<Type>>,
 }
@@ -69,7 +69,7 @@ where
     }
 
     fn get_entry(&self, ident: &Ident) -> Option<&ScopeEntry> {
-        match self.entries.get(ident) {
+        match self.entries.get(ident.get()) {
             Some(scope_entry) => Some(scope_entry),
             None => self.parent.get_entry(ident),
         }
@@ -109,8 +109,8 @@ pub enum ScopeEntry {
 impl ScopeEntry {
     fn get_ident(&self) -> &str {
         match self {
-            ScopeEntry::Variable(variable) => variable.var_decl.ident.as_str(),
-            ScopeEntry::Function(function) => function.name.as_str(),
+            ScopeEntry::Variable(variable) => variable.var_decl.ident.get(),
+            ScopeEntry::Function(function) => function.name.get(),
         }
     }
 }

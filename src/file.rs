@@ -9,7 +9,6 @@ use crate::IRContext;
 use crate::function::Function;
 use crate::RJParser;
 use crate::Rule;
-use crate::ident::Ident;
 use crate::scope::NonScope;
 use crate::scope::Scopable;
 use crate::scope::ScopeEntry;
@@ -18,7 +17,8 @@ use crate::scope::ScopeFunction;
 #[derive(Debug, Default)]
 pub struct File {
     name: String,
-    functions: HashMap<Ident, Function>,
+    functions: HashMap<String, Function>,
+    input: String,
 }
 
 impl File {
@@ -27,6 +27,7 @@ impl File {
         let pair = RJParser::parse(Rule::file, input.as_str())?.next().unwrap();
 
         let mut file = File::ast(pair);
+        file.input = input;
         file.name = filename.to_string();
 
         Ok(file)
@@ -38,11 +39,11 @@ impl File {
             _ => panic!("Anonymous function not allowed in root: {:?}", function),
         };
 
-        if self.functions.contains_key(&name) {
-            panic!("Function name used twice in file: {}", name);
+        if self.functions.contains_key(name.get()) {
+            panic!("Function name used twice in file: {}", name.get());
         }
 
-        self.functions.insert(name, function);
+        self.functions.insert(name.get().to_string(), function);
     }
 
     pub fn ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) -> Result<(), std::io::Error> {
@@ -51,9 +52,11 @@ impl File {
 
         let mut scope = NonScope{}.new_scope();
 
-        for (ident, function) in &self.functions {
+        for (_, function) in &self.functions {
+            let function_name = function.name.clone().unwrap();
+
             scope.set_entry(ScopeEntry::Function(ScopeFunction{
-                name: ident.clone(),
+                name: function_name,
                 args: function.args.iter().map(|arg| arg.var_type.clone()).collect(),
                 returns: function.ret_type.iter().map(|t| t.clone()).collect(),
             }))

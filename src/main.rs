@@ -1,9 +1,12 @@
 
 #![feature(iterator_try_collect)]
 
+use std::io::Write;
+
 use argparse::{ArgumentParser, Store, StoreTrue};
 use pest::error::Error;
 use pest::iterators::Pair;
+use symbol_ref::SymbolRef;
 
 mod block;
 mod expression;
@@ -13,6 +16,7 @@ mod ident;
 mod scope;
 mod stmt;
 mod const_data;
+mod symbol_ref;
 
 use crate::file::File;
 
@@ -51,6 +55,11 @@ fn unexpected_pair(pair: &Pair<Rule>) {
     panic!("Unexpected pair {:?}", pair);
 }
 
+fn compiler_error(message: &str, symbol: &SymbolRef) -> ! {
+    writeln!(std::io::stderr(), "{}: Error: {}", symbol, message);
+    panic!("COMPILER ERROR");
+}
+
 fn main() -> Result<(), Error<Rule>> {
     let mut emit_ast = false;
     let mut emit_llvm = false;
@@ -72,7 +81,14 @@ fn main() -> Result<(), Error<Rule>> {
         ap.parse_args_or_exit();
     }
 
-    let file = File::read_file(file_name.as_str())?;
+    let file = File::read_file(file_name.as_str());
+    let file = match file {
+        Ok(file) => file,
+        Err(err) => {
+            println!("Syntax error: {}", err);
+            panic!()
+        },
+    };
 
     if emit_ast {
         println!("{:#?}", file);

@@ -5,10 +5,10 @@ use pest::iterators::Pair;
 
 use crate::const_data::{Const, ConstImpl};
 use crate::function::FunctionCall;
-use crate::ident::{Ident, IdentImpl};
+use crate::ident::Ident;
 use crate::scope::{Scopable, ScopeEntry};
 use crate::stmt::Type;
-use crate::{check_rule, unexpected_pair, Rule};
+use crate::{check_rule, unexpected_pair, Rule, compiler_error};
 
 #[derive(Debug)]
 pub struct ExpressionInput {
@@ -157,7 +157,9 @@ impl Expression {
                 let scope_entry = match scope_entry {
                     ScopeEntry::Variable(variable) => variable,
 
-                    _ => panic!("expected {} to be variable, instead it is {:?}", ident, scope_entry),
+                    _ => {
+                        panic!("expected {} to be variable, instead it is {:?}", ident.get(), scope_entry)
+                    },
                 };
 
                 let var_type = scope_entry.var_decl.var_type.clone();

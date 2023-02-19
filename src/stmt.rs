@@ -4,7 +4,7 @@ use std::{fmt::Write as _, vec};
 use crate::{
     check_rule,
     expression::{ExpressionInput, ExpressionList},
-    ident::{Ident, IdentImpl},
+    ident::Ident,
     scope::{Scopable, ScopeEntry, ScopeVariable},
     unexpected_pair, Rule, function::FunctionCall,
 };
@@ -135,7 +135,7 @@ impl Stmt {
             .map(|ident| {
                 let variable = match scope.get_entry(ident) {
                     Some(variable) => variable,
-                    None => panic!("No variable in scope by name {}", ident),
+                    None => panic!("No variable in scope by name {}", ident.get()),
                 };
 
                 match variable {
@@ -157,7 +157,7 @@ impl Stmt {
 
                     _ => panic!(
                         "Expected {} to be variable, but it is {:?}",
-                        ident, variable
+                        ident.get(), variable
                     ),
                 }
             })

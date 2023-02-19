@@ -1,7 +1,7 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 func = {
-  "fn" ~ ident? ~ arg_def
+  "fn" ~ ident ~ arg_def
   ~ (":" ~ ret_type)?
   ~ block
 }
@@ -29,6 +29,10 @@ stmt = {
   | func_ret
   | assign
   | func_call
+}
+
+if = {
+  "if" ~ expr_elm ~ block
 }
 
 func_ret = {

@@ -1,15 +1,26 @@
-use crate::Rule;
+use pest::iterators::Pair;
 
-pub type Ident = String;
+use crate::{Rule, symbol_ref::SymbolRef};
 
-pub trait IdentImpl {
-    fn ast(pair: pest::iterators::Pair<crate::Rule>) -> Ident {
+#[derive(Debug, Clone)]
+pub struct Ident {
+    pub symbol: SymbolRef,
+    value: String
+}
+
+impl Ident {
+    pub fn ast(pair: Pair<Rule>) -> Ident {
         if pair.as_rule() != Rule::ident {
             panic!("Attempted to generate ident from non ident pair: {:?}", pair)
         }
 
-        pair.as_str().to_string()
+        Ident {
+            value: pair.as_str().to_string(),
+            symbol: SymbolRef::from_pair(&pair)
+        }
+    }
+
+    pub fn get(&self) -> &str {
+        self.value.as_str()
     }
 }
-
-impl IdentImpl for Ident {}
