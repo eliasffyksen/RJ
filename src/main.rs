@@ -1,12 +1,10 @@
 
 #![feature(iterator_try_collect)]
-
-use std::io::Write;
+#![recursion_limit = "256"]
 
 use argparse::{ArgumentParser, Store, StoreTrue};
 use pest::error::Error;
 use pest::iterators::Pair;
-use symbol_ref::SymbolRef;
 
 mod block;
 mod expression;

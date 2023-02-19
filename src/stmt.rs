@@ -1,5 +1,5 @@
 use pest::iterators::Pair;
-use std::{fmt::Write as _, vec};
+use std::{fmt::{Write as _, Debug}, vec};
 
 use crate::{
     ast_type::Type,

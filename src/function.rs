@@ -70,7 +70,7 @@ impl Function {
         &self,
         output: &mut impl std::io::Write,
         context: &mut IRContext,
-        scope: &(impl Scopable + fmt::Debug),
+        scope: &impl Scopable,
     ) -> Result<(), SymbolError> {
         let name = match &self.name {
             Some(name) => name,

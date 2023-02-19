@@ -37,18 +37,11 @@ impl Const {
         context: &mut crate::IRContext,
         expression_input: &mut ExpressionInput,
     ) -> Result<(), SymbolError> {
-        let store_to = expression_input.ir_convert(context, Type::I32, self.value.as_str());
-        let from = match store_to {
+        let from = expression_input.ir_convert(output, context, Type::I32, self.value.as_str());
+        let from = match from {
             Ok(x) => x,
             Err(err) => return Err(err.to_symbol_err(&self.symbol)),
         };
-
-        if Type::I32 != expression_input.data_type {
-            panic!(
-                "Incompatible data, expected {:?} got i32",
-                expression_input.data_type
-            );
-        }
 
         match &expression_input.store_to {
             Some(store_register) => {

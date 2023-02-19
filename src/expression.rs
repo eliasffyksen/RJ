@@ -1,26 +1,27 @@
+use std::fmt::{Display, Write as _};
+use std::io;
 use std::slice::IterMut;
-use std::fmt::{Write as _, Display};
 
 use pest::iterators::Pair;
 
-use crate::const_data::{Const};
+use crate::ast_type::Type;
+use crate::const_data::Const;
 use crate::function::FunctionCall;
 use crate::ident::Ident;
 use crate::scope::{Scopable, ScopeEntry};
-use crate::ast_type::Type;
-use crate::symbol_ref::{SymbolRef, SymbolError};
-use crate::{check_rule, unexpected_pair, Rule, IRContext};
+use crate::symbol_ref::{SymbolError, SymbolRef};
+use crate::{check_rule, unexpected_pair, IRContext, Rule};
 
 pub struct ConversionError {
     from: Type,
-    to: Type
+    to: Type,
 }
 
 impl ConversionError {
     pub fn to_symbol_err(self, symbol: &SymbolRef) -> SymbolError {
         SymbolError {
             error: Box::new(self),
-            symbol: symbol.clone()
+            symbol: symbol.clone(),
         }
     }
 }
@@ -38,16 +39,44 @@ pub struct ExpressionInput {
 }
 
 impl ExpressionInput {
-    pub fn ir_convert(&self, context: &mut IRContext, from_type: Type, from: &str) -> Result<String, ConversionError> {
+    pub fn ir_convert(
+        &self,
+        output: &mut impl io::Write,
+        context: &mut IRContext,
+        from_type: Type,
+        from: &str,
+    ) -> Result<String, ConversionError> {
         if self.data_type == from_type {
-            return Ok(from.to_string())
+            return Ok(from.to_string());
         }
 
-        match self.data_type {
+        match from_type {
+            Type::I32 => self.ir_convert_i32(output, context, from),
+
             _ => Err(ConversionError {
                 from: from_type,
                 to: self.data_type.clone(),
-            })
+            }),
+        }
+    }
+
+    pub fn ir_convert_i32(
+        &self,
+        output: &mut impl io::Write,
+        context: &mut IRContext,
+        from: &str,
+    ) -> Result<String, ConversionError> {
+        match self.data_type {
+            Type::Bool => {
+                let register = context.claim_register();
+                writeln!(output, "  %{} = icmp ne {}, 0", register, from).unwrap();
+                Ok(format!("i1 %{}", register))
+            }
+
+            _ => Err(ConversionError {
+                from: Type::I32,
+                to: self.data_type.clone(),
+            }),
         }
     }
 }
@@ -132,27 +161,23 @@ impl Expression {
     ) -> Result<(), SymbolError> {
         match self {
             Expression::Ident(ident) => {
-                let expression_input = expression_inputs.next()
-                    .expect("Too many values to unpack");
+                let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
                 Self::ir_ident(ident, output, context, scope, expression_input).unwrap();
                 Ok(())
             }
 
             Expression::Const(const_data) => {
-                let expression_input = expression_inputs.next()
-                    .expect("Too many values to unpack");
+                let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
                 const_data.ir(output, context, expression_input)
             }
 
             Expression::FunctionCall(function_call) => {
                 function_call.ir(output, context, scope, expression_inputs)
-            },
+            }
         }
     }
-
-
 
     fn ir_ident(
         ident: &Ident,
@@ -167,8 +192,12 @@ impl Expression {
                     ScopeEntry::Variable(variable) => variable,
 
                     _ => {
-                        panic!("expected {} to be variable, instead it is {:?}", ident.get(), scope_entry)
-                    },
+                        panic!(
+                            "expected {} to be variable, instead it is {:?}",
+                            ident.get(),
+                            scope_entry
+                        )
+                    }
                 };
 
                 let var_type = scope_entry.var_decl.var_type.clone();
@@ -202,8 +231,14 @@ impl Expression {
                     )
                 } else {
                     let mut store_to = String::new();
-                    write!(&mut store_to, "{} %{}", var_type.get_ir_type(), dst_register).unwrap();
-                    expression_input.store_to = Some( store_to);
+                    write!(
+                        &mut store_to,
+                        "{} %{}",
+                        var_type.get_ir_type(),
+                        dst_register
+                    )
+                    .unwrap();
+                    expression_input.store_to = Some(store_to);
                     Ok(())
                 }
             }

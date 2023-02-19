@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::read_to_string;
 use std::io;
 
@@ -47,7 +48,7 @@ impl File {
         self.functions.insert(name.get().to_string(), function);
     }
 
-    pub fn ir(&self, out: &mut impl std::io::Write, context: &mut IRContext) {
+    pub fn ir(&self, out: &mut impl io::Write, context: &mut IRContext) {
         writeln!(out, "source_filename = \"{}\"", self.name).unwrap();
         writeln!(out).unwrap();
 

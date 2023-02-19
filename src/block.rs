@@ -15,8 +15,9 @@ impl Block {
         &self,
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
-        scope: &(impl Scopable + std::fmt::Debug),
+        scope: &impl Scopable,
     ) -> Result<(), SymbolError> {
+
         let mut scope = scope.new_scope();
 
         for statement in &self.statements {
