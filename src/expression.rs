@@ -10,6 +10,7 @@ use crate::scope::{Scopable, ScopeEntry};
 use crate::stmt::Type;
 use crate::{check_rule, unexpected_pair, Rule};
 
+#[derive(Debug)]
 pub struct ExpressionInput {
     pub data_type: Type,
     pub store_to: Option<String>,

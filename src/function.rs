@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::slice::IterMut;
 
 use pest::iterators::Pair;
@@ -213,32 +213,70 @@ impl FunctionCall {
             )
         }
 
-        let mut function_inputs = function.args.iter().map(|t| ExpressionInput {
-            data_type: t.clone(),
-            store_to: None,
-        }).collect();
+        let mut function_inputs = function
+            .args
+            .iter()
+            .map(|t| ExpressionInput {
+                data_type: t.clone(),
+                store_to: None,
+            })
+            .collect();
 
         let function_name = function.name.clone();
-        let function_return = function.returns.clone();
+        let mut post_call_moves = vec![];
+        let return_variables = function
+            .returns
+            .iter()
+            .map(|t| {
+                let input = expression_inputs
+                    .next()
+                    .expect("function returns to many values");
 
-        self.expressions.ir(output, context, scope, &mut function_inputs)?;
+                if input.data_type != *t {
+                    panic!(
+                        "Incompatible return type, expected {:?} got {:?}",
+                        t, input.data_type
+                    );
+                }
+
+                match &input.store_to {
+                    Some(store_to) => store_to.clone(),
+                    None => {
+                        let temporary_variable = context.claim_register();
+
+                        writeln!(
+                            output,
+                            "  %{} = alloca {}",
+                            temporary_variable,
+                            t.get_ir_type()
+                        )
+                        .unwrap();
+
+                        post_call_moves.push((temporary_variable, input));
+
+                        let mut store_to = String::new();
+                        write!(
+                            &mut store_to,
+                            "{}* %{}",
+                            t.get_ir_type(),
+                            temporary_variable
+                        )
+                        .unwrap();
+
+                        store_to
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        self.expressions
+            .ir(output, context, scope, &mut function_inputs)?;
 
         write!(output, "  call void @{}(", function_name)?;
 
         let mut first = true;
 
-        for t in function_return.iter() {
-            let input = expression_inputs.next().expect("function returns to many values");
-
-            let store_to = match &input.store_to {
-                Some(x) => x,
-                None => todo!(),
-            };
-
-            if &input.data_type != t {
-                panic!("Expected type {:?}, got {:?}", input.data_type, t);
-            }
-
+        for store_to in return_variables {
             if !first {
                 writeln!(output, ", ")?;
             }
@@ -262,6 +300,31 @@ impl FunctionCall {
         }
 
         writeln!(output, ")")?;
+
+        for (temporary_register, expression_input) in post_call_moves {
+            let output_register = context.claim_register();
+            writeln!(
+                output,
+                "  %{} = load {}, {}* %{}",
+                output_register,
+                expression_input.data_type.get_ir_type(),
+                expression_input.data_type.get_ir_type(),
+                temporary_register,
+            )
+            .unwrap();
+
+            let mut store_to = String::new();
+
+            write!(
+                &mut store_to,
+                "{} %{}",
+                expression_input.data_type.get_ir_type(),
+                output_register
+            )
+            .unwrap();
+
+            expression_input.store_to = Some(store_to);
+        }
 
         Ok(())
     }
