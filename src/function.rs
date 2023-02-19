@@ -88,9 +88,18 @@ impl Function {
 
         self.ir_args(output, context, &mut scope).unwrap();
 
-        self.block.ir(output, context, &mut scope)?;
+        let has_returned = self.block.ir(output, context, &mut scope)?;
+        if !has_returned {
+            if self.ret_type.len() != 0 {
+                return Err(SymbolError {
+                    error: Box::new("No return value".to_string()),
+                    symbol: self.symbol.clone(),
+                })
+            }
 
-        writeln!(output, "  ret void").unwrap();
+            writeln!(output, "  ret void").unwrap();
+        }
+
         writeln!(output, "}}").unwrap();
 
         Ok(())

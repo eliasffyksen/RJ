@@ -16,15 +16,18 @@ impl Block {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &impl Scopable,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<bool, SymbolError> {
 
         let mut scope = scope.new_scope();
 
         for statement in &self.statements {
-            statement.ir(output, context, &mut scope)?
+            let has_returned = statement.ir(output, context, &mut scope)?;
+            if has_returned {
+                return Ok(true);
+            }
         }
 
-        Ok(())
+        Ok(false)
     }
 
     pub fn ast(pair: pest::iterators::Pair<crate::Rule>) -> Block {

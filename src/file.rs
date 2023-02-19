@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::fs::read_to_string;
 use std::io;
 
@@ -11,8 +10,8 @@ use crate::IRContext;
 use crate::function::Function;
 use crate::RJParser;
 use crate::Rule;
-use crate::scope::NonScope;
 use crate::scope::Scopable;
+use crate::scope::Scope;
 use crate::scope::ScopeEntry;
 use crate::scope::ScopeFunction;
 
@@ -52,7 +51,7 @@ impl File {
         writeln!(out, "source_filename = \"{}\"", self.name).unwrap();
         writeln!(out).unwrap();
 
-        let mut scope = NonScope{}.new_scope();
+        let mut scope: Scope = Default::default();
 
         for (_, function) in &self.functions {
             let function_name = function.name.clone().unwrap();

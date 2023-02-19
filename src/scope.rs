@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, default};
 
 use crate::{
     ident::Ident,
@@ -8,54 +8,23 @@ use crate::{
 
 pub trait Scopable {
     fn set_ret_type(&mut self, ret_type: Vec<Type>);
-    fn get_ret_type(&self) -> &'_ Vec<Type>;
+    fn get_ret_type(&self) -> Option<&'_ Vec<Type>>;
+
 
     fn set_entry(&mut self, scope_entry: ScopeEntry);
     fn get_entry(&self, ident: &Ident) -> Option<&'_ ScopeEntry>;
 
-    fn new_scope(&self) -> Scope<Self>
-    where
-        Self: Sized,
-    {
-        Scope {
-            entries: HashMap::new(),
-            parent: self,
-            ret_type: None,
-        }
-    }
+    fn new_scope(&self) -> Scope;
 }
 
-#[derive(Debug)]
-pub struct NonScope {}
-
-impl Scopable for NonScope {
-    fn set_entry(&mut self, scope_entry: ScopeEntry) {
-        panic!("Attempted to set entry {:?} in non scope", scope_entry);
-    }
-
-    fn get_entry(&self, _: &Ident) -> Option<&'_ ScopeEntry> {
-        None
-    }
-
-    fn set_ret_type(&mut self, ret_type: Vec<Type>) {
-        panic!("Attempted to set return type {:?} in non scope", ret_type);
-    }
-
-    fn get_ret_type(&self) -> &'_ Vec<Type> {
-        panic!("Attempted to get return type from non scope");
-    }
-}
-
-#[derive(Debug)]
-pub struct Scope<'parent, T> {
+#[derive(Debug, Default)]
+pub struct Scope<'a> {
     entries: HashMap<String, ScopeEntry>,
-    parent: &'parent T,
+    parent: Option<&'a Scope<'a>>,
     ret_type: Option<Vec<Type>>,
 }
 
-impl<T> Scopable for Scope<'_, T>
-where
-    T: Scopable,
+impl Scopable for Scope<'_>
 {
     fn set_entry(&mut self, scope_entry: ScopeEntry) {
         let key = scope_entry.get_ident();
@@ -72,7 +41,7 @@ where
     fn get_entry(&self, ident: &Ident) -> Option<&ScopeEntry> {
         match self.entries.get(ident.get()) {
             Some(scope_entry) => Some(scope_entry),
-            None => self.parent.get_entry(ident),
+            None => self.parent?.get_entry(ident),
         }
     }
 
@@ -80,11 +49,18 @@ where
         self.ret_type = Some(ret_type);
     }
 
-    fn get_ret_type(&self) -> &'_ Vec<Type> {
+    fn get_ret_type(&self) -> Option<&'_ Vec<Type>> {
         match &self.ret_type {
-            Some(ret_type) => ret_type,
-            None => self.parent.get_ret_type(),
+            Some(ret_type) => Some(ret_type),
+            None => self.parent?.get_ret_type(),
         }
+    }
+
+    fn new_scope(&self) -> Scope<'_> {
+        let mut new_scope: Scope = Default::default();
+        new_scope.parent = Some(self);
+
+        new_scope
     }
 }
 

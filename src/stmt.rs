@@ -54,7 +54,7 @@ impl Stmt {
             }
         }
 
-        panic!("No pair in return statement")
+        Stmt::FuncReturn(Default::default())
     }
 
     fn ast_assign(pair: Pair<Rule>) -> Self {
@@ -79,29 +79,33 @@ impl Stmt {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<bool, SymbolError> {
         match self {
             Stmt::VarDecl(var_decl) => {
                 var_decl.ir(output, context, scope).unwrap();
+                Ok(false)
             }
 
-            Stmt::FuncReturn(func_return) => Self::ir_return(func_return, output, context, scope)?,
+            Stmt::FuncReturn(func_return) => {
+                Self::ir_return(func_return, output, context, scope);
+                Ok(true)
+            },
 
             Stmt::Assign((identifiers, expressions)) => {
-                Self::ir_assign(identifiers, expressions, output, context, scope)?;
+                Self::ir_assign(identifiers, expressions, output, context, scope);
+                Ok(false)
             }
 
             Stmt::FuncCall(function_call) => {
                 let mut empty: Vec<ExpressionInput> = vec![];
                 function_call.ir(output, context, scope, &mut empty.iter_mut())?;
+                Ok(false)
             }
 
-            Stmt::If(if_stmt) => if_stmt.ir(output, context, scope)?,
+            Stmt::If(if_stmt) => {
+                if_stmt.ir(output, context, scope)
+            },
         }
-
-        writeln!(output).unwrap();
-
-        Ok(())
     }
 
     pub fn ir_return(
@@ -112,6 +116,7 @@ impl Stmt {
     ) -> Result<(), SymbolError> {
         let mut ret_type = scope
             .get_ret_type()
+            .unwrap()
             .iter()
             .enumerate()
             .map(|(i, t)| {
@@ -128,7 +133,11 @@ impl Stmt {
             .try_collect::<Vec<ExpressionInput>>()
             .unwrap();
 
-        func_return.ir(output, context, scope, &mut ret_type)
+        func_return.ir(output, context, scope, &mut ret_type)?;
+
+        writeln!(output, "  ret void").unwrap();
+
+        Ok(())
     }
 
     pub fn ir_assign(

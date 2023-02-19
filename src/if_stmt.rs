@@ -49,7 +49,7 @@ impl If {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<bool, SymbolError> {
         let mut condition_input = vec![ExpressionInput {
             data_type: Type::Bool,
             store_to: None,
@@ -63,7 +63,7 @@ impl If {
         let label_if = context.claim_register();
         let mut block_if_output = vec![];
 
-        self.if_block.ir(&mut block_if_output, context, scope)?;
+        let if_returned = self.if_block.ir(&mut block_if_output, context, scope)?;
 
         let label_done = context.claim_register();
 
@@ -72,9 +72,13 @@ impl If {
 
         writeln!(output, "{}:", label_if).unwrap();
         output.write(&block_if_output).unwrap();
+        if !if_returned {
+            writeln!(output, "  br label %{}", label_done).unwrap();
+        }
 
+        writeln!(output).unwrap();
         writeln!(output, "{}:", label_done).unwrap();
 
-        todo!()
+        Ok(false)
     }
 }
