@@ -1,4 +1,4 @@
-use std::fmt::{Display, Write as _};
+use std::fmt::{format, Display, Write as _};
 use std::io;
 use std::slice::IterMut;
 
@@ -169,7 +169,7 @@ impl Expression {
             Expression::Ident(ident) => {
                 let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
-                Self::ir_ident(ident, output, context, scope, expression_input).unwrap();
+                Self::ir_ident(ident, output, context, scope, expression_input)?;
                 Ok(())
             }
 
@@ -187,7 +187,7 @@ impl Expression {
                 let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
                 equal.ir(output, context, scope, expression_input)
-            },
+            }
         }
     }
 
@@ -197,7 +197,7 @@ impl Expression {
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
         expression_input: &mut ExpressionInput,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), SymbolError> {
         match scope.get_entry(ident) {
             Some(scope_entry) => {
                 let scope_entry = match scope_entry {
@@ -214,13 +214,6 @@ impl Expression {
 
                 let var_type = scope_entry.var_decl.var_type.clone();
 
-                if var_type != expression_input.data_type {
-                    panic!(
-                        "Incompatible data, expected {:?} got {:?}",
-                        expression_input.data_type, var_type
-                    );
-                }
-
                 let dst_register = context.claim_register();
                 let src_register = scope_entry.register;
 
@@ -231,25 +224,22 @@ impl Expression {
                     var_type.get_ir_type(),
                     var_type.get_ir_type(),
                     src_register
-                )?;
+                )
+                .unwrap();
+
+                let from = format!("{} %{}", var_type.get_ir_type(), dst_register);
+                let from = expression_input.ir_convert(output, context, var_type, &from.as_str());
+                let from = match from {
+                    Ok(x) => x,
+                    Err(err) => return Err(err.to_symbol_err(&ident.symbol)),
+                };
 
                 if let Some(store_to) = &expression_input.store_to {
-                    writeln!(
-                        output,
-                        "  store {} %{}, {}",
-                        var_type.get_ir_type(),
-                        dst_register,
-                        store_to,
-                    )
+                    writeln!(output, "  store {}, {}", from, store_to,).unwrap();
+                    Ok(())
                 } else {
                     let mut store_to = String::new();
-                    write!(
-                        &mut store_to,
-                        "{} %{}",
-                        var_type.get_ir_type(),
-                        dst_register
-                    )
-                    .unwrap();
+                    write!(&mut store_to, "{}", from).unwrap();
                     expression_input.store_to = Some(store_to);
                     Ok(())
                 }
