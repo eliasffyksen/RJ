@@ -6,7 +6,7 @@ use pest::iterators::Pair;
 use crate::block::Block;
 use crate::expression::{ExpressionInput, ExpressionList};
 use crate::ident::{Ident, IdentImpl};
-use crate::scope::{Scopable, ScopeEntry};
+use crate::scope::{Scopable, ScopeEntry, ScopeFunction};
 use crate::stmt::{Type, VarDecl};
 use crate::{check_rule, unexpected_pair, IRContext, Rule};
 
@@ -160,7 +160,7 @@ impl Function {
 #[derive(Debug)]
 pub struct FunctionCall {
     identifier: Ident,
-    expressions: ExpressionList,
+    input_expressions: ExpressionList,
 }
 
 impl FunctionCall {
@@ -181,7 +181,7 @@ impl FunctionCall {
 
         Self {
             identifier: identifier.expect("No identifier in func call!"),
-            expressions: expressions.unwrap_or(Default::default()),
+            input_expressions: expressions.unwrap_or(Default::default()),
         }
     }
 
@@ -190,8 +190,41 @@ impl FunctionCall {
         output: &mut impl std::io::Write,
         context: &mut crate::IRContext,
         scope: &mut impl Scopable,
-        expression_inputs: &mut IterMut<ExpressionInput>,
+        return_data: &mut IterMut<ExpressionInput>,
     ) -> Result<(), std::io::Error> {
+        let function = self.get_function_from_scope(scope);
+
+        let function_name = function.name.clone();
+        let (return_variables, temporary_variables) =
+            Self::generate_temporary_variables(output, function, return_data, context);
+
+        let mut llvm_call_args = vec![];
+
+        let mut function_inputs = self.generate_function_inputs(function);
+
+        self.input_expressions
+            .ir(output, context, scope, &mut function_inputs).unwrap();
+
+        for variable in return_variables {
+            llvm_call_args.push(variable);
+        }
+
+        for input in function_inputs {
+            let store_to = input.store_to.unwrap();
+            llvm_call_args.push(store_to);
+        }
+
+        writeln!(output, "  call void @{}({})", function_name, llvm_call_args.join(", "))?;
+
+        Self::move_temporary_registers(output, temporary_variables, context);
+
+        Ok(())
+    }
+
+    fn get_function_from_scope<'a>(
+        &self,
+        scope: &'a mut impl Scopable,
+    ) -> &'a ScopeFunction {
         let function = scope
             .get_entry(&self.identifier)
             .expect("Function not in scope");
@@ -204,104 +237,102 @@ impl FunctionCall {
             ),
         };
 
-        if self.expressions.expressions.len() != function.args.len() {
+        if self.input_expressions.expressions.len() != function.args.len() {
             panic!(
                 "Function {} takes {} arguments, {} were given",
                 function.name,
                 function.args.len(),
-                self.expressions.expressions.len(),
+                self.input_expressions.expressions.len(),
             )
         }
 
-        let mut function_inputs = function
+        function
+    }
+
+    fn generate_function_inputs(
+        &self,
+        function: &ScopeFunction,
+    ) -> Vec<ExpressionInput> {
+        function
             .args
             .iter()
             .map(|t| ExpressionInput {
                 data_type: t.clone(),
                 store_to: None,
             })
-            .collect();
+            .collect()
+    }
 
-        let function_name = function.name.clone();
+    fn generate_temporary_variables<'a>(
+        output: &mut impl std::io::Write,
+        function: &ScopeFunction,
+        expression_inputs: &'a mut IterMut<ExpressionInput>,
+        context: &mut crate::IRContext,
+    ) -> (Vec<String>, Vec<(usize, &'a mut ExpressionInput)>) {
         let mut post_call_moves = vec![];
-        let return_variables = function
-            .returns
-            .iter()
-            .map(|t| {
-                let input = expression_inputs
-                    .next()
-                    .expect("function returns to many values");
+        let mut return_variables = vec![];
 
-                if input.data_type != *t {
-                    panic!(
-                        "Incompatible return type, expected {:?} got {:?}",
-                        t, input.data_type
-                    );
-                }
+        for return_type in &function.returns {
+            let input = expression_inputs
+                .next()
+                .expect("function returns to many values");
 
-                match &input.store_to {
-                    Some(store_to) => store_to.clone(),
-                    None => {
-                        let temporary_variable = context.claim_register();
-
-                        writeln!(
-                            output,
-                            "  %{} = alloca {}",
-                            temporary_variable,
-                            t.get_ir_type()
-                        )
-                        .unwrap();
-
-                        post_call_moves.push((temporary_variable, input));
-
-                        let mut store_to = String::new();
-                        write!(
-                            &mut store_to,
-                            "{}* %{}",
-                            t.get_ir_type(),
-                            temporary_variable
-                        )
-                        .unwrap();
-
-                        store_to
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-
-        self.expressions
-            .ir(output, context, scope, &mut function_inputs)?;
-
-        write!(output, "  call void @{}(", function_name)?;
-
-        let mut first = true;
-
-        for store_to in return_variables {
-            if !first {
-                writeln!(output, ", ")?;
+            if input.data_type != *return_type {
+                panic!(
+                    "Incompatible return type, expected {:?} got {:?}",
+                    return_type, input.data_type
+                );
             }
-            first = false;
 
-            write!(output, "{}", store_to)?;
+            if let Some(store_to) = &input.store_to {
+                return_variables.push(store_to.clone());
+
+                continue;
+            }
+
+            let (temporary_variable, store_to) =
+                Self::create_temporary_register(output, context, return_type);
+
+            post_call_moves.push((temporary_variable, input));
+            return_variables.push(store_to);
         }
 
-        for input in function_inputs {
-            let store_to = match input.store_to {
-                Some(x) => x,
-                None => todo!(),
-            };
+        (return_variables, post_call_moves)
+    }
 
-            if !first {
-                write!(output, ", ")?;
-            }
-            first = false;
+    fn create_temporary_register(
+        output: &mut impl std::io::Write,
+        context: &mut crate::IRContext,
+        data_type: &Type,
+    ) -> (usize, String) {
+        let temporary_variable = context.claim_register();
 
-            write!(output, "{}", store_to)?;
-        }
+        writeln!(
+            output,
+            "  %{} = alloca {}",
+            temporary_variable,
+            data_type.get_ir_type()
+        )
+        .unwrap();
 
-        writeln!(output, ")")?;
+        let mut store_to = String::new();
+        write!(
+            &mut store_to,
+            "{}* %{}",
+            data_type.get_ir_type(),
+            temporary_variable
+        )
+        .unwrap();
 
-        for (temporary_register, expression_input) in post_call_moves {
+        (temporary_variable, store_to)
+    }
+
+    fn move_temporary_registers(
+        output: &mut impl std::io::Write,
+        temporary_variables: Vec<(usize, &mut ExpressionInput)>,
+        context: &mut crate::IRContext,
+    ) {
+        for (temporary_register, expression_input) in temporary_variables {
             let output_register = context.claim_register();
             writeln!(
                 output,
@@ -325,7 +356,5 @@ impl FunctionCall {
 
             expression_input.store_to = Some(store_to);
         }
-
-        Ok(())
     }
 }
