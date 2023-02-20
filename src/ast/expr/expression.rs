@@ -1,33 +1,27 @@
-use std::fmt::{format, Display, Write as _};
+use std::fmt;
+use std::fmt::Write;
 use std::io;
-use std::slice::IterMut;
+use std::slice;
 
-use pest::iterators::Pair;
-
-use crate::ast_type::Type;
-use crate::const_data::Const;
-use crate::equal::Equal;
-use crate::function::FunctionCall;
-use crate::ident::Ident;
-use crate::scope::{Scopable, ScopeEntry};
-use crate::symbol_ref::{SymbolError, SymbolRef};
-use crate::{check_rule, unexpected_pair, IRContext, Rule};
+use crate::ast;
+use crate::ast::{expr, scope};
+use crate::parser;
 
 pub struct ConversionError {
-    from: Type,
-    to: Type,
+    from: ast::Type,
+    to: ast::Type,
 }
 
 impl ConversionError {
-    pub fn to_symbol_err(self, symbol: &SymbolRef) -> SymbolError {
-        SymbolError {
+    pub fn to_symbol_err(self, symbol: &ast::SymbolRef) -> ast::SymbolError {
+        ast::SymbolError {
             error: Box::new(self),
             symbol: symbol.clone(),
         }
     }
 }
 
-impl Display for ConversionError {
+impl fmt::Display for ConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Can not convert {} to {}", self.from, self.to)
     }
@@ -35,7 +29,7 @@ impl Display for ConversionError {
 
 #[derive(Debug)]
 pub struct ExpressionInput {
-    pub data_type: Type,
+    pub data_type: ast::Type,
     pub store_to: Option<String>,
 }
 
@@ -43,11 +37,11 @@ impl ExpressionInput {
     pub fn ir_convert(
         &mut self,
         output: &mut impl io::Write,
-        context: &mut IRContext,
-        from_type: Type,
+        context: &mut ast::IRContext,
+        from_type: ast::Type,
         from: &str,
     ) -> Result<String, ConversionError> {
-        if self.data_type == Type::Any {
+        if self.data_type == ast::Type::Any {
             self.data_type = from_type;
             return Ok(from.to_string());
         }
@@ -57,7 +51,7 @@ impl ExpressionInput {
         }
 
         match from_type {
-            Type::I32 => self.ir_convert_i32(output, context, from),
+            ast::Type::I32 => self.ir_convert_i32(output, context, from),
 
             _ => Err(ConversionError {
                 from: from_type,
@@ -69,18 +63,18 @@ impl ExpressionInput {
     pub fn ir_convert_i32(
         &self,
         output: &mut impl io::Write,
-        context: &mut IRContext,
+        context: &mut ast::IRContext,
         from: &str,
     ) -> Result<String, ConversionError> {
         match self.data_type {
-            Type::Bool => {
+            ast::Type::Bool => {
                 let register = context.claim_register();
                 writeln!(output, "  %{} = icmp ne {}, 0", register, from).unwrap();
                 Ok(format!("i1 %{}", register))
             }
 
             _ => Err(ConversionError {
-                from: Type::I32,
+                from: ast::Type::I32,
                 to: self.data_type.clone(),
             }),
         }
@@ -93,16 +87,16 @@ pub struct ExpressionList {
 }
 
 impl ExpressionList {
-    pub fn ast(pair: Pair<Rule>) -> Self {
-        check_rule(&pair, Rule::expr_list);
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
+        assert!(pair.as_rule() == parser::Rule::expr_list);
 
         let mut expressions = vec![];
 
         for element in pair.into_inner() {
             match element.as_rule() {
-                Rule::expr_elm => expressions.push(Expression::ast(element)),
+                parser::Rule::expr_elm => expressions.push(Expression::ast(element)),
 
-                _ => unexpected_pair(&element),
+                _ => unexpected_pair!(element),
             }
         }
 
@@ -111,11 +105,11 @@ impl ExpressionList {
 
     pub fn ir(
         &self,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-        expression_inputs: &mut Vec<ExpressionInput>,
-    ) -> Result<(), SymbolError> {
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
+        expression_inputs: &mut Vec<expr::ExpressionInput>,
+    ) -> Result<(), ast::SymbolError> {
         if expression_inputs.len() != self.expressions.len() {
             panic!(
                 "Incorrect expression list count, expected {} values got {}",
@@ -136,35 +130,35 @@ impl ExpressionList {
 
 #[derive(Debug)]
 pub enum Expression {
-    Ident(Ident),
-    Const(Const),
-    FunctionCall(FunctionCall),
-    Eq(Box<Equal>),
+    Ident(ast::Ident),
+    Const(expr::Const),
+    FunctionCall(expr::FunctionCall),
+    Eq(Box<expr::Equal>),
 }
 
 impl Expression {
-    pub fn ast(pair: Pair<Rule>) -> Self {
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         let pair = depred(pair);
 
         match pair.as_rule() {
-            Rule::ident => return Expression::Ident(Ident::ast(pair)),
-            Rule::int => return Expression::Const(Const::ast(pair)),
-            Rule::func_call => return Expression::FunctionCall(FunctionCall::ast(pair)),
-            Rule::equal => return Expression::Eq(Box::new(Equal::ast(pair))),
+            parser::Rule::ident => return Expression::Ident(ast::Ident::ast(pair)),
+            parser::Rule::int => return Expression::Const(expr::Const::ast(pair)),
+            parser::Rule::func_call => {
+                return Expression::FunctionCall(expr::FunctionCall::ast(pair))
+            }
+            parser::Rule::equal => return Expression::Eq(Box::new(expr::Equal::ast(pair))),
 
-            _ => unexpected_pair(&pair),
+            _ => unexpected_pair!(pair),
         }
-
-        panic!("No pair in expression");
     }
 
     pub fn ir(
         &self,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-        expression_inputs: &mut IterMut<ExpressionInput>,
-    ) -> Result<(), SymbolError> {
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
+        expression_inputs: &mut slice::IterMut<ExpressionInput>,
+    ) -> Result<(), ast::SymbolError> {
         match self {
             Expression::Ident(ident) => {
                 let expression_input = expression_inputs.next().expect("Too many values to unpack");
@@ -192,16 +186,16 @@ impl Expression {
     }
 
     fn ir_ident(
-        ident: &Ident,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
+        ident: &ast::Ident,
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
         expression_input: &mut ExpressionInput,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<(), ast::SymbolError> {
         match scope.get_entry(ident) {
             Some(scope_entry) => {
                 let scope_entry = match scope_entry {
-                    ScopeEntry::Variable(variable) => variable,
+                    scope::ScopeEntry::Variable(variable) => variable,
 
                     _ => {
                         panic!(
@@ -249,13 +243,13 @@ impl Expression {
     }
 }
 
-fn depred(pair: Pair<Rule>) -> Pair<Rule> {
+fn depred(pair: parser::Pair<parser::Rule>) -> parser::Pair<parser::Rule> {
     let mut pair = pair;
 
     while match pair.as_rule() {
-        Rule::pred_0 => true,
-        Rule::pred_max => true,
-        Rule::expr_elm => true,
+        parser::Rule::pred_0 => true,
+        parser::Rule::pred_max => true,
+        parser::Rule::expr_elm => true,
 
         _ => false,
     } {

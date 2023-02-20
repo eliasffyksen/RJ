@@ -1,40 +1,33 @@
-use pest::iterators::Pair;
-use std::{fmt::{Write as _, Debug}, vec};
+use std::fmt::Write;
+use std::io;
+use std::vec;
 
-use crate::{
-    ast_type::Type,
-    check_rule,
-    expression::{ExpressionInput, ExpressionList},
-    function::FunctionCall,
-    ident::Ident,
-    if_stmt::If,
-    scope::{Scopable, ScopeEntry, ScopeVariable},
-    symbol_ref::SymbolError,
-    unexpected_pair, Rule,
-};
+use crate::ast;
+use crate::ast::expr;
+use crate::ast::scope;
+use crate::ast::stmt;
+use crate::parser;
 
 #[derive(Debug)]
 pub enum Stmt {
     VarDecl(VarDecl),
-    FuncReturn(ExpressionList),
-    Assign((Vec<Ident>, ExpressionList)),
-    FuncCall(FunctionCall),
-    If(If),
+    FuncReturn(expr::ExpressionList),
+    Assign((Vec<ast::Ident>, expr::ExpressionList)),
+    FuncCall(expr::FunctionCall),
+    If(stmt::If),
 }
 
 impl Stmt {
-    pub fn ast(pair: Pair<Rule>) -> Stmt {
-        if pair.as_rule() != Rule::stmt {
-            panic!("Attempted to generate Stmt from non Stmt pair: {:?}", pair)
-        }
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Stmt {
+        assert!(pair.as_rule() == parser::Rule::stmt);
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::var_decl => return Self::VarDecl(VarDecl::ast(pair)),
-                Rule::func_ret => return Self::ast_return(pair),
-                Rule::assign => return Self::ast_assign(pair),
-                Rule::func_call => return Self::FuncCall(FunctionCall::ast(pair)),
-                Rule::if_stmt => return Self::If(If::ast(pair)),
+                parser::Rule::var_decl => return Self::VarDecl(VarDecl::ast(pair)),
+                parser::Rule::func_ret => return Self::ast_return(pair),
+                parser::Rule::assign => return Self::ast_assign(pair),
+                parser::Rule::func_call => return Self::FuncCall(expr::FunctionCall::ast(pair)),
+                parser::Rule::if_stmt => return Self::If(stmt::If::ast(pair)),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
@@ -43,31 +36,35 @@ impl Stmt {
         panic!("No pairs in statement");
     }
 
-    fn ast_return(pair: Pair<Rule>) -> Self {
-        check_rule(&pair, Rule::func_ret);
+    fn ast_return(pair: parser::Pair<parser::Rule>) -> Self {
+        assert!(pair.as_rule() == parser::Rule::func_ret);
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::expr_list => return Stmt::FuncReturn(ExpressionList::ast(pair)),
+                parser::Rule::expr_list => {
+                    return Stmt::FuncReturn(expr::ExpressionList::ast(pair))
+                }
 
-                _ => unexpected_pair(&pair),
+                _ => unexpected_pair!(pair),
             }
         }
 
         Stmt::FuncReturn(Default::default())
     }
 
-    fn ast_assign(pair: Pair<Rule>) -> Self {
-        check_rule(&pair, Rule::assign);
+    fn ast_assign(pair: parser::Pair<parser::Rule>) -> Self {
+        assert!(pair.as_rule() == parser::Rule::assign);
 
         let mut identifiers = vec![];
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::expr_list => return Self::Assign((identifiers, ExpressionList::ast(pair))),
-                Rule::ident => identifiers.push(Ident::ast(pair)),
+                parser::Rule::expr_list => {
+                    return Self::Assign((identifiers, expr::ExpressionList::ast(pair)))
+                }
+                parser::Rule::ident => identifiers.push(ast::Ident::ast(pair)),
 
-                _ => unexpected_pair(&pair),
+                _ => unexpected_pair!(pair),
             }
         }
 
@@ -77,9 +74,9 @@ impl Stmt {
     pub fn ir(
         &self,
         output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-    ) -> Result<bool, SymbolError> {
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
+    ) -> Result<bool, ast::SymbolError> {
         match self {
             Stmt::VarDecl(var_decl) => {
                 var_decl.ir(output, context, scope).unwrap();
@@ -89,7 +86,7 @@ impl Stmt {
             Stmt::FuncReturn(func_return) => {
                 Self::ir_return(func_return, output, context, scope)?;
                 Ok(true)
-            },
+            }
 
             Stmt::Assign((identifiers, expressions)) => {
                 Self::ir_assign(identifiers, expressions, output, context, scope)?;
@@ -97,23 +94,21 @@ impl Stmt {
             }
 
             Stmt::FuncCall(function_call) => {
-                let mut empty: Vec<ExpressionInput> = vec![];
+                let mut empty: Vec<expr::ExpressionInput> = vec![];
                 function_call.ir(output, context, scope, &mut empty.iter_mut())?;
                 Ok(false)
             }
 
-            Stmt::If(if_stmt) => {
-                if_stmt.ir(output, context, scope)
-            },
+            Stmt::If(if_stmt) => if_stmt.ir(output, context, scope),
         }
     }
 
     pub fn ir_return(
-        func_return: &ExpressionList,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-    ) -> Result<(), SymbolError> {
+        func_return: &expr::ExpressionList,
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
+    ) -> Result<(), ast::SymbolError> {
         let mut ret_type = scope
             .get_ret_type()
             .unwrap()
@@ -123,14 +118,14 @@ impl Stmt {
                 let mut store_to = String::new();
                 write!(&mut store_to, "{}* %{}", t.get_ir_type(), i)?;
 
-                let result: Result<_, std::fmt::Error> = Ok(ExpressionInput {
+                let result: Result<_, std::fmt::Error> = Ok(expr::ExpressionInput {
                     data_type: t.clone(),
                     store_to: Some(store_to),
                 });
 
                 result
             })
-            .try_collect::<Vec<ExpressionInput>>()
+            .try_collect::<Vec<expr::ExpressionInput>>()
             .unwrap();
 
         func_return.ir(output, context, scope, &mut ret_type)?;
@@ -141,12 +136,12 @@ impl Stmt {
     }
 
     pub fn ir_assign(
-        identifiers: &Vec<Ident>,
-        expressions: &ExpressionList,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-    ) -> Result<(), SymbolError> {
+        identifiers: &Vec<ast::Ident>,
+        expressions: &expr::ExpressionList,
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
+    ) -> Result<(), ast::SymbolError> {
         let mut expression_inputs = identifiers
             .iter()
             .map(|ident| {
@@ -156,7 +151,7 @@ impl Stmt {
                 };
 
                 match variable {
-                    ScopeEntry::Variable(variable) => {
+                    scope::ScopeEntry::Variable(variable) => {
                         let mut store_to = String::new();
                         write!(
                             &mut store_to,
@@ -166,7 +161,7 @@ impl Stmt {
                         )
                         .unwrap();
 
-                        ExpressionInput {
+                        expr::ExpressionInput {
                             data_type: variable.var_decl.var_type.clone(),
                             store_to: Some(store_to),
                         }
@@ -187,13 +182,13 @@ impl Stmt {
 
 #[derive(Debug, Clone)]
 pub struct VarDecl {
-    pub ident: Ident,
-    pub var_type: Type,
+    pub ident: ast::Ident,
+    pub var_type: ast::Type,
 }
 
 impl VarDecl {
-    pub fn ast(pair: pest::iterators::Pair<Rule>) -> VarDecl {
-        if pair.as_rule() != Rule::var_decl {
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> VarDecl {
+        if pair.as_rule() != parser::Rule::var_decl {
             panic!(
                 "Attempted to generate VarDecl from non VarDecl pair: {:?}",
                 pair
@@ -205,8 +200,8 @@ impl VarDecl {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::ident => ident = Some(Ident::ast(pair)),
-                Rule::var_type => var_type = Some(Type::ast(pair)),
+                parser::Rule::ident => ident = Some(ast::Ident::ast(pair)),
+                parser::Rule::var_type => var_type = Some(ast::Type::ast(pair)),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
             }
@@ -220,9 +215,9 @@ impl VarDecl {
 
     pub fn ir(
         &self,
-        out: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
+        out: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
     ) -> Result<usize, std::io::Error> {
         let register = context.claim_register();
         writeln!(
@@ -232,7 +227,7 @@ impl VarDecl {
             self.var_type.get_ir_type()
         )?;
 
-        scope.set_entry(ScopeEntry::Variable(ScopeVariable {
+        scope.set_entry(scope::ScopeEntry::Variable(scope::ScopeVariable {
             var_decl: self.clone(),
             register,
         }));

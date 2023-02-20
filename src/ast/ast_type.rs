@@ -1,8 +1,6 @@
-use std::fmt::Display;
+use std::fmt;
 
-use pest::iterators::Pair;
-
-use crate::Rule;
+use crate::parser;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -20,8 +18,8 @@ impl Type {
         }
     }
 
-    pub fn ast(pair: Pair<Rule>) -> Type {
-        if pair.as_rule() != Rule::var_type {
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Type {
+        if pair.as_rule() != parser::Rule::var_type {
             panic!("Attempted to generate Type from non Type pair: {:?}", pair)
         }
 
@@ -33,7 +31,7 @@ impl Type {
     }
 }
 
-impl Display for Type {
+impl fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match self {
             Type::I32 => "i32",

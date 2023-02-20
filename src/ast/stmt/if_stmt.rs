@@ -1,39 +1,31 @@
-use std::fmt::Debug;
+use std::io;
 
-use pest::iterators::Pair;
-
-use crate::{
-    block::Block,
-    check_rule,
-    expression::{Expression, ExpressionInput},
-    scope::Scopable,
-    ast_type::Type,
-    symbol_ref::{SymbolRef, SymbolError},
-    unexpected_pair, Rule,
-};
+use crate::ast;
+use crate::ast::{expr, scope, stmt};
+use crate::parser;
 
 #[derive(Debug)]
 pub struct If {
-    symbol: SymbolRef,
-    expression: Expression,
-    if_block: Block,
+    symbol: ast::SymbolRef,
+    expression: expr::Expression,
+    if_block: stmt::Block,
 }
 
 impl If {
-    pub fn ast(pair: Pair<Rule>) -> Self {
-        check_rule(&pair, Rule::if_stmt);
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
+        assert!(pair.as_rule() == parser::Rule::if_stmt);
 
-        let symbol = SymbolRef::from_pair(&pair);
+        let symbol = ast::SymbolRef::from_pair(&pair);
 
         let mut expression = None;
         let mut if_block = None;
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::expr_elm => expression = Some(Expression::ast(pair)),
-                Rule::block => if_block = Some(Block::ast(pair)),
+                parser::Rule::expr_elm => expression = Some(expr::Expression::ast(pair)),
+                parser::Rule::block => if_block = Some(stmt::Block::ast(pair)),
 
-                _ => unexpected_pair(&pair),
+                _ => unexpected_pair!(pair),
             }
         }
 
@@ -46,12 +38,12 @@ impl If {
 
     pub fn ir(
         &self,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        scope: &mut impl Scopable,
-    ) -> Result<bool, SymbolError> {
-        let mut condition_input = vec![ExpressionInput {
-            data_type: Type::Bool,
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        scope: &mut impl scope::Scopable,
+    ) -> Result<bool, ast::SymbolError> {
+        let mut condition_input = vec![expr::ExpressionInput {
+            data_type: ast::Type::Bool,
             store_to: None,
         }];
 
@@ -67,7 +59,14 @@ impl If {
 
         let label_done = context.claim_register();
 
-        writeln!(output, "  br {}, label %{}, label %{}", condition_input.store_to.unwrap(), label_if, label_done).unwrap();
+        writeln!(
+            output,
+            "  br {}, label %{}, label %{}",
+            condition_input.store_to.unwrap(),
+            label_if,
+            label_done
+        )
+        .unwrap();
         writeln!(output).unwrap();
 
         writeln!(output, "{}:", label_if).unwrap();

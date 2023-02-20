@@ -1,31 +1,29 @@
-use std::collections::HashMap;
-use std::fs::read_to_string;
+use std::collections;
+use std::fs;
 use std::io;
 
 use pest::error::Error;
 use pest::iterators::Pair;
-use pest::Parser;
 
-use crate::IRContext;
-use crate::function::Function;
-use crate::RJParser;
-use crate::Rule;
-use crate::scope::Scopable;
-use crate::scope::Scope;
-use crate::scope::ScopeEntry;
-use crate::scope::ScopeFunction;
+use crate::ast;
+use crate::ast::scope;
+use crate::ast::scope::Scopable;
+use crate::parser;
+use crate::parser::ParserTrait;
 
 #[derive(Debug, Default)]
 pub struct File {
     name: String,
-    functions: HashMap<String, Function>,
+    functions: collections::HashMap<String, ast::Function>,
     input: String,
 }
 
 impl File {
-    pub fn read_file(filename: &'_ str) -> Result<File, Error<Rule>> {
-        let input = read_to_string(filename).expect("Error reading file");
-        let pair = RJParser::parse(Rule::file, input.as_str())?.next().unwrap();
+    pub fn read_file(filename: &'_ str) -> Result<File, Error<parser::Rule>> {
+        let input = fs::read_to_string(filename).expect("Error reading file");
+        let pair = parser::Parser::parse(parser::Rule::file, input.as_str())?
+            .next()
+            .unwrap();
 
         let mut file = File::ast(pair);
         file.input = input;
@@ -34,7 +32,7 @@ impl File {
         Ok(file)
     }
 
-    fn add_function(&mut self, function: Function) {
+    fn add_function(&mut self, function: ast::Function) {
         let name = match &function.name {
             Some(name) => name.clone(),
             _ => panic!("Anonymous function not allowed in root: {:?}", function),
@@ -47,18 +45,22 @@ impl File {
         self.functions.insert(name.get().to_string(), function);
     }
 
-    pub fn ir(&self, out: &mut impl io::Write, context: &mut IRContext) {
+    pub fn ir(&self, out: &mut impl io::Write, context: &mut ast::IRContext) {
         writeln!(out, "source_filename = \"{}\"", self.name).unwrap();
         writeln!(out).unwrap();
 
-        let mut scope: Scope = Default::default();
+        let mut scope: scope::Scope = Default::default();
 
         for (_, function) in &self.functions {
             let function_name = function.name.clone().unwrap();
 
-            scope.set_entry(ScopeEntry::Function(ScopeFunction{
+            scope.set_entry(scope::ScopeEntry::Function(scope::ScopeFunction {
                 name: function_name,
-                args: function.args.iter().map(|arg| arg.var_type.clone()).collect(),
+                args: function
+                    .args
+                    .iter()
+                    .map(|arg| arg.var_type.clone())
+                    .collect(),
                 returns: function.ret_type.iter().map(|t| t.clone()).collect(),
             }))
         }
@@ -68,27 +70,25 @@ impl File {
         for (_, function) in &self.functions {
             match function.ir(out, context, &scope) {
                 Ok(_) => (),
-                Err(err) => {
-                    err.display(&mut io::stderr(), &self.name, &self.input)
-                },
+                Err(err) => err.display(&mut io::stderr(), &self.name, &self.input),
             }
             writeln!(out).unwrap();
         }
     }
 
-    pub fn ast(pair: Pair<Rule>) -> File {
+    pub fn ast(pair: Pair<parser::Rule>) -> File {
         let mut file: File = Default::default();
 
         let inner = match pair.as_rule() {
-            Rule::file => pair.into_inner(),
+            parser::Rule::file => pair.into_inner(),
 
             _ => panic!("Trying to generate file from non file pair {:?}", pair),
         };
 
         for pair in inner {
             match pair.as_rule() {
-                Rule::func => file.add_function(Function::ast(pair)),
-                Rule::EOI => (),
+                parser::Rule::func => file.add_function(ast::Function::ast(pair)),
+                parser::Rule::EOI => (),
 
                 _ => panic!("Invalid pair in file: {:?}", pair),
             }

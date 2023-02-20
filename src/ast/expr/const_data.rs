@@ -1,25 +1,22 @@
-use crate::{
-    ast_type::Type,
-    expression::ExpressionInput,
-    symbol_ref::{SymbolError, SymbolRef},
-    Rule,
-};
+use std::io;
+
+use crate::ast;
+use crate::ast::expr;
+use crate::parser;
 
 #[derive(Debug)]
 pub struct Const {
-    data_type: Type,
+    data_type: ast::Type,
     value: String,
-    symbol: SymbolRef,
+    symbol: ast::SymbolRef,
 }
 
 impl Const {
-    pub fn ast(pair: pest::iterators::Pair<crate::Rule>) -> Const {
-        if pair.as_rule() != Rule::int {
-            panic!("Attempted to generate int from non ident int: {:?}", pair)
-        }
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Const {
+        assert!(pair.as_rule() == parser::Rule::int);
 
         Const {
-            data_type: Type::I32,
+            data_type: ast::Type::I32,
             value: format!(
                 "i32 {}",
                 pair.as_str()
@@ -27,17 +24,18 @@ impl Const {
                     .parse::<i32>()
                     .expect("Failed to parse int"),
             ),
-            symbol: SymbolRef::from_pair(&pair),
+            symbol: ast::SymbolRef::from_pair(&pair),
         }
     }
 
     pub fn ir(
         &self,
-        output: &mut impl std::io::Write,
-        context: &mut crate::IRContext,
-        expression_input: &mut ExpressionInput,
-    ) -> Result<(), SymbolError> {
-        let from = expression_input.ir_convert(output, context, Type::I32, self.value.as_str());
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        expression_input: &mut expr::ExpressionInput,
+    ) -> Result<(), ast::SymbolError> {
+        let from =
+            expression_input.ir_convert(output, context, ast::Type::I32, self.value.as_str());
         let from = match from {
             Ok(x) => x,
             Err(err) => return Err(err.to_symbol_err(&self.symbol)),

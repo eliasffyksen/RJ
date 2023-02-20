@@ -1,10 +1,8 @@
-use std::{
-    fmt::{self, Debug, Display},
-    io, cmp::min,
-};
+use std::cmp::min;
+use std::fmt;
+use std::io;
 
-use crate::Rule;
-use pest::iterators::Pair;
+use crate::parser;
 
 pub struct SymbolError {
     pub error: Box<dyn fmt::Display>,
@@ -27,10 +25,13 @@ impl SymbolError {
         let len = self.symbol.end - self.symbol.start;
         let len = min(len, line.len() - self.symbol.column + 1);
 
-        writeln!(output, "{}{}\n",
+        writeln!(
+            output,
+            "{}{}\n",
             " ".repeat(self.symbol.column - 1),
             "~".repeat(len),
-        ).unwrap();
+        )
+        .unwrap();
     }
 }
 
@@ -43,7 +44,7 @@ pub struct SymbolRef {
 }
 
 impl SymbolRef {
-    pub fn from_pair(pair: &Pair<Rule>) -> SymbolRef {
+    pub fn from_pair(pair: &parser::Pair<parser::Rule>) -> SymbolRef {
         SymbolRef {
             line: pair.line_col().0,
             column: pair.line_col().1,
@@ -53,7 +54,7 @@ impl SymbolRef {
     }
 }
 
-impl Display for SymbolRef {
+impl fmt::Display for SymbolRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}", self.line, self.column)
     }
