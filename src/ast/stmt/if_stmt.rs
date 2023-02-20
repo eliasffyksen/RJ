@@ -6,8 +6,8 @@ use crate::parser;
 
 #[derive(Debug)]
 pub struct If {
-    symbol: ast::SymbolRef,
-    expression: expr::Expression,
+    symbol: ast::Symbol,
+    expression: expr::Expr,
     if_block: stmt::Block,
 }
 
@@ -15,14 +15,14 @@ impl If {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         assert!(pair.as_rule() == parser::Rule::if_stmt);
 
-        let symbol = ast::SymbolRef::from_pair(&pair);
+        let symbol = ast::Symbol::from_pair(&pair);
 
         let mut expression = None;
         let mut if_block = None;
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                parser::Rule::expr_elm => expression = Some(expr::Expression::ast(pair)),
+                parser::Rule::expr_elm => expression = Some(expr::Expr::ast(pair)),
                 parser::Rule::block => if_block = Some(stmt::Block::ast(pair)),
 
                 _ => unexpected_pair!(pair),
@@ -41,8 +41,8 @@ impl If {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-    ) -> Result<bool, ast::SymbolError> {
-        let mut condition_input = vec![expr::ExpressionInput {
+    ) -> Result<bool, ast::Error> {
+        let mut condition_input = vec![expr::Input {
             data_type: ast::Type::Bool,
             store_to: None,
         }];

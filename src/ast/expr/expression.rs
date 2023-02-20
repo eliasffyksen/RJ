@@ -4,7 +4,8 @@ use std::io;
 use std::slice;
 
 use crate::ast;
-use crate::ast::{expr, scope};
+use crate::ast::expr;
+use crate::ast::scope;
 use crate::parser;
 
 pub struct ConversionError {
@@ -13,8 +14,8 @@ pub struct ConversionError {
 }
 
 impl ConversionError {
-    pub fn to_symbol_err(self, symbol: &ast::SymbolRef) -> ast::SymbolError {
-        ast::SymbolError {
+    pub fn to_symbol_err(self, symbol: &ast::Symbol) -> ast::Error {
+        ast::Error {
             error: Box::new(self),
             symbol: symbol.clone(),
         }
@@ -28,12 +29,12 @@ impl fmt::Display for ConversionError {
 }
 
 #[derive(Debug)]
-pub struct ExpressionInput {
+pub struct Input {
     pub data_type: ast::Type,
     pub store_to: Option<String>,
 }
 
-impl ExpressionInput {
+impl Input {
     pub fn ir_convert(
         &mut self,
         output: &mut impl io::Write,
@@ -82,11 +83,11 @@ impl ExpressionInput {
 }
 
 #[derive(Debug, Default)]
-pub struct ExpressionList {
-    pub expressions: Vec<Expression>,
+pub struct List {
+    pub expressions: Vec<Expr>,
 }
 
-impl ExpressionList {
+impl List {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         assert!(pair.as_rule() == parser::Rule::expr_list);
 
@@ -94,7 +95,7 @@ impl ExpressionList {
 
         for element in pair.into_inner() {
             match element.as_rule() {
-                parser::Rule::expr_elm => expressions.push(Expression::ast(element)),
+                parser::Rule::expr_elm => expressions.push(Expr::ast(element)),
 
                 _ => unexpected_pair!(element),
             }
@@ -108,8 +109,8 @@ impl ExpressionList {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        expression_inputs: &mut Vec<expr::ExpressionInput>,
-    ) -> Result<(), ast::SymbolError> {
+        expression_inputs: &mut Vec<expr::Input>,
+    ) -> Result<(), ast::Error> {
         if expression_inputs.len() != self.expressions.len() {
             panic!(
                 "Incorrect expression list count, expected {} values got {}",
@@ -129,24 +130,24 @@ impl ExpressionList {
 }
 
 #[derive(Debug)]
-pub enum Expression {
+pub enum Expr {
     Ident(ast::Ident),
     Const(expr::Const),
-    FunctionCall(expr::FunctionCall),
+    FunctionCall(expr::FuncCall),
     Eq(Box<expr::Equal>),
 }
 
-impl Expression {
+impl Expr {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         let pair = depred(pair);
 
         match pair.as_rule() {
-            parser::Rule::ident => return Expression::Ident(ast::Ident::ast(pair)),
-            parser::Rule::int => return Expression::Const(expr::Const::ast(pair)),
+            parser::Rule::ident => return Expr::Ident(ast::Ident::ast(pair)),
+            parser::Rule::int => return Expr::Const(expr::Const::ast(pair)),
             parser::Rule::func_call => {
-                return Expression::FunctionCall(expr::FunctionCall::ast(pair))
+                return Expr::FunctionCall(expr::FuncCall::ast(pair))
             }
-            parser::Rule::equal => return Expression::Eq(Box::new(expr::Equal::ast(pair))),
+            parser::Rule::equal => return Expr::Eq(Box::new(expr::Equal::ast(pair))),
 
             _ => unexpected_pair!(pair),
         }
@@ -157,27 +158,27 @@ impl Expression {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        expression_inputs: &mut slice::IterMut<ExpressionInput>,
-    ) -> Result<(), ast::SymbolError> {
+        expression_inputs: &mut slice::IterMut<Input>,
+    ) -> Result<(), ast::Error> {
         match self {
-            Expression::Ident(ident) => {
+            Expr::Ident(ident) => {
                 let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
                 Self::ir_ident(ident, output, context, scope, expression_input)?;
                 Ok(())
             }
 
-            Expression::Const(const_data) => {
+            Expr::Const(const_data) => {
                 let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
                 const_data.ir(output, context, expression_input)
             }
 
-            Expression::FunctionCall(function_call) => {
+            Expr::FunctionCall(function_call) => {
                 function_call.ir(output, context, scope, expression_inputs)
             }
 
-            Expression::Eq(equal) => {
+            Expr::Eq(equal) => {
                 let expression_input = expression_inputs.next().expect("Too many values to unpack");
 
                 equal.ir(output, context, scope, expression_input)
@@ -190,12 +191,12 @@ impl Expression {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        expression_input: &mut ExpressionInput,
-    ) -> Result<(), ast::SymbolError> {
+        expression_input: &mut Input,
+    ) -> Result<(), ast::Error> {
         match scope.get_entry(ident) {
             Some(scope_entry) => {
                 let scope_entry = match scope_entry {
-                    scope::ScopeEntry::Variable(variable) => variable,
+                    scope::Entry::Variable(variable) => variable,
 
                     _ => {
                         panic!(

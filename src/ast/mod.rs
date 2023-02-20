@@ -14,11 +14,12 @@ mod function;
 mod ident;
 mod ircontext;
 mod symbol;
+mod error;
 
 pub use ast_type::Type;
 pub use file::File;
-pub use function::Function;
+pub use function::Func;
 pub use ident::Ident;
 pub use ircontext::IRContext;
-pub use symbol::SymbolError;
-pub use symbol::SymbolRef;
+pub use symbol::Symbol;
+pub use error::Error;

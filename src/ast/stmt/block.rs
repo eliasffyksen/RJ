@@ -16,7 +16,7 @@ impl Block {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &impl scope::Scopable,
-    ) -> Result<bool, ast::SymbolError> {
+    ) -> Result<bool, ast::Error> {
         let mut scope = scope.new_scope();
 
         for statement in &self.statements {

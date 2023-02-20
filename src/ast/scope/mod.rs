@@ -2,6 +2,6 @@ mod scope;
 
 pub use scope::Scopable;
 pub use scope::Scope;
-pub use scope::ScopeEntry;
-pub use scope::ScopeFunction;
-pub use scope::ScopeVariable;
+pub use scope::Entry;
+pub use scope::Function;
+pub use scope::Variable;

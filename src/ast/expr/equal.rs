@@ -1,7 +1,9 @@
-use std::{fmt, io};
+use std::fmt;
+use std::io;
 
 use crate::ast;
-use crate::ast::{expr, scope};
+use crate::ast::expr;
+use crate::ast::scope;
 use crate::parser;
 
 struct IncompatibleOperation {
@@ -26,22 +28,22 @@ impl fmt::Display for IncompatibleOperation {
 
 #[derive(Debug)]
 pub struct Equal {
-    left: expr::Expression,
-    right: expr::Expression,
-    symbol: ast::SymbolRef,
+    left: expr::Expr,
+    right: expr::Expr,
+    symbol: ast::Symbol,
 }
 
 impl Equal {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Equal {
         assert!(pair.as_rule() == parser::Rule::equal);
 
-        let symbol = ast::SymbolRef::from_pair(&pair);
+        let symbol = ast::Symbol::from_pair(&pair);
 
         let mut pairs = pair.into_inner();
 
         Equal {
-            left: expr::Expression::ast(pairs.next().unwrap()),
-            right: expr::Expression::ast(pairs.next().unwrap()),
+            left: expr::Expr::ast(pairs.next().unwrap()),
+            right: expr::Expr::ast(pairs.next().unwrap()),
             symbol,
         }
     }
@@ -51,9 +53,9 @@ impl Equal {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        expression_input: &mut expr::ExpressionInput,
-    ) -> Result<(), ast::SymbolError> {
-        let mut left_expression_input = vec![expr::ExpressionInput {
+        expression_input: &mut expr::Input,
+    ) -> Result<(), ast::Error> {
+        let mut left_expression_input = vec![expr::Input {
             data_type: ast::Type::Any,
             store_to: None,
         }];
@@ -66,7 +68,7 @@ impl Equal {
         )?;
         let left = left_expression_input.pop().unwrap();
 
-        let mut right_expression_input = vec![expr::ExpressionInput {
+        let mut right_expression_input = vec![expr::Input {
             data_type: ast::Type::Any,
             store_to: None,
         }];
@@ -82,11 +84,11 @@ impl Equal {
         if left.data_type == right.data_type {
             let success = match left.data_type {
                 ast::Type::I32 => {
-                    self.ir_compare_int(output, context, scope, &left, &right, expression_input)?;
+                    self.ir_compare_int(output, context, &left, &right, expression_input)?;
                     true
                 }
                 ast::Type::Bool => {
-                    self.ir_compare_int(output, context, scope, &left, &right, expression_input)?;
+                    self.ir_compare_int(output, context, &left, &right, expression_input)?;
                     true
                 }
                 _ => false,
@@ -96,7 +98,7 @@ impl Equal {
             }
         }
 
-        Err(ast::SymbolError {
+        Err(ast::Error {
             symbol: self.symbol.clone(),
             error: Box::new(IncompatibleOperation {
                 operation: "==",
@@ -109,11 +111,10 @@ impl Equal {
         &self,
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
-        scope: &mut impl scope::Scopable,
-        left: &expr::ExpressionInput,
-        right: &expr::ExpressionInput,
-        expression_output: &mut expr::ExpressionInput,
-    ) -> Result<(), ast::SymbolError> {
+        left: &expr::Input,
+        right: &expr::Input,
+        expression_output: &mut expr::Input,
+    ) -> Result<(), ast::Error> {
         // TODO: CHANGE THIS!!!!! HACK TO GET IT WORKING!
         let result_register = context.claim_register();
         let data_type = left.data_type.clone();

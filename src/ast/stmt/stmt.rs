@@ -11,9 +11,9 @@ use crate::parser;
 #[derive(Debug)]
 pub enum Stmt {
     VarDecl(VarDecl),
-    FuncReturn(expr::ExpressionList),
-    Assign((Vec<ast::Ident>, expr::ExpressionList)),
-    FuncCall(expr::FunctionCall),
+    FuncReturn(expr::List),
+    Assign((Vec<ast::Ident>, expr::List)),
+    FuncCall(expr::FuncCall),
     If(stmt::If),
 }
 
@@ -26,7 +26,7 @@ impl Stmt {
                 parser::Rule::var_decl => return Self::VarDecl(VarDecl::ast(pair)),
                 parser::Rule::func_ret => return Self::ast_return(pair),
                 parser::Rule::assign => return Self::ast_assign(pair),
-                parser::Rule::func_call => return Self::FuncCall(expr::FunctionCall::ast(pair)),
+                parser::Rule::func_call => return Self::FuncCall(expr::FuncCall::ast(pair)),
                 parser::Rule::if_stmt => return Self::If(stmt::If::ast(pair)),
 
                 _ => panic!("Unexpected pair: {:?}", pair),
@@ -42,7 +42,7 @@ impl Stmt {
         for pair in pair.into_inner() {
             match pair.as_rule() {
                 parser::Rule::expr_list => {
-                    return Stmt::FuncReturn(expr::ExpressionList::ast(pair))
+                    return Stmt::FuncReturn(expr::List::ast(pair))
                 }
 
                 _ => unexpected_pair!(pair),
@@ -60,7 +60,7 @@ impl Stmt {
         for pair in pair.into_inner() {
             match pair.as_rule() {
                 parser::Rule::expr_list => {
-                    return Self::Assign((identifiers, expr::ExpressionList::ast(pair)))
+                    return Self::Assign((identifiers, expr::List::ast(pair)))
                 }
                 parser::Rule::ident => identifiers.push(ast::Ident::ast(pair)),
 
@@ -76,7 +76,7 @@ impl Stmt {
         output: &mut impl std::io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-    ) -> Result<bool, ast::SymbolError> {
+    ) -> Result<bool, ast::Error> {
         match self {
             Stmt::VarDecl(var_decl) => {
                 var_decl.ir(output, context, scope).unwrap();
@@ -94,7 +94,7 @@ impl Stmt {
             }
 
             Stmt::FuncCall(function_call) => {
-                let mut empty: Vec<expr::ExpressionInput> = vec![];
+                let mut empty: Vec<expr::Input> = vec![];
                 function_call.ir(output, context, scope, &mut empty.iter_mut())?;
                 Ok(false)
             }
@@ -104,11 +104,11 @@ impl Stmt {
     }
 
     pub fn ir_return(
-        func_return: &expr::ExpressionList,
+        func_return: &expr::List,
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-    ) -> Result<(), ast::SymbolError> {
+    ) -> Result<(), ast::Error> {
         let mut ret_type = scope
             .get_ret_type()
             .unwrap()
@@ -118,14 +118,14 @@ impl Stmt {
                 let mut store_to = String::new();
                 write!(&mut store_to, "{}* %{}", t.get_ir_type(), i)?;
 
-                let result: Result<_, std::fmt::Error> = Ok(expr::ExpressionInput {
+                let result: Result<_, std::fmt::Error> = Ok(expr::Input {
                     data_type: t.clone(),
                     store_to: Some(store_to),
                 });
 
                 result
             })
-            .try_collect::<Vec<expr::ExpressionInput>>()
+            .try_collect::<Vec<expr::Input>>()
             .unwrap();
 
         func_return.ir(output, context, scope, &mut ret_type)?;
@@ -137,11 +137,11 @@ impl Stmt {
 
     pub fn ir_assign(
         identifiers: &Vec<ast::Ident>,
-        expressions: &expr::ExpressionList,
+        expressions: &expr::List,
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-    ) -> Result<(), ast::SymbolError> {
+    ) -> Result<(), ast::Error> {
         let mut expression_inputs = identifiers
             .iter()
             .map(|ident| {
@@ -151,7 +151,7 @@ impl Stmt {
                 };
 
                 match variable {
-                    scope::ScopeEntry::Variable(variable) => {
+                    scope::Entry::Variable(variable) => {
                         let mut store_to = String::new();
                         write!(
                             &mut store_to,
@@ -161,7 +161,7 @@ impl Stmt {
                         )
                         .unwrap();
 
-                        expr::ExpressionInput {
+                        expr::Input {
                             data_type: variable.var_decl.var_type.clone(),
                             store_to: Some(store_to),
                         }
@@ -227,7 +227,7 @@ impl VarDecl {
             self.var_type.get_ir_type()
         )?;
 
-        scope.set_entry(scope::ScopeEntry::Variable(scope::ScopeVariable {
+        scope.set_entry(scope::Entry::Variable(scope::Variable {
             var_decl: self.clone(),
             register,
         }));

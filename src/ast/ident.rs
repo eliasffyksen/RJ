@@ -3,7 +3,7 @@ use crate::parser;
 
 #[derive(Debug, Clone)]
 pub struct Ident {
-    pub symbol: ast::SymbolRef,
+    pub symbol: ast::Symbol,
     value: String,
 }
 
@@ -13,7 +13,7 @@ impl Ident {
 
         Ident {
             value: pair.as_str().to_string(),
-            symbol: ast::SymbolRef::from_pair(&pair),
+            symbol: ast::Symbol::from_pair(&pair),
         }
     }
 

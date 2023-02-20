@@ -8,7 +8,7 @@ use crate::parser;
 pub struct Const {
     data_type: ast::Type,
     value: String,
-    symbol: ast::SymbolRef,
+    symbol: ast::Symbol,
 }
 
 impl Const {
@@ -24,7 +24,7 @@ impl Const {
                     .parse::<i32>()
                     .expect("Failed to parse int"),
             ),
-            symbol: ast::SymbolRef::from_pair(&pair),
+            symbol: ast::Symbol::from_pair(&pair),
         }
     }
 
@@ -32,8 +32,8 @@ impl Const {
         &self,
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
-        expression_input: &mut expr::ExpressionInput,
-    ) -> Result<(), ast::SymbolError> {
+        expression_input: &mut expr::Input,
+    ) -> Result<(), ast::Error> {
         let from =
             expression_input.ir_convert(output, context, ast::Type::I32, self.value.as_str());
         let from = match from {

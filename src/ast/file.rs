@@ -14,7 +14,7 @@ use crate::parser::ParserTrait;
 #[derive(Debug, Default)]
 pub struct File {
     name: String,
-    functions: collections::HashMap<String, ast::Function>,
+    functions: collections::HashMap<String, ast::Func>,
     input: String,
 }
 
@@ -32,7 +32,7 @@ impl File {
         Ok(file)
     }
 
-    fn add_function(&mut self, function: ast::Function) {
+    fn add_function(&mut self, function: ast::Func) {
         let name = match &function.name {
             Some(name) => name.clone(),
             _ => panic!("Anonymous function not allowed in root: {:?}", function),
@@ -54,7 +54,7 @@ impl File {
         for (_, function) in &self.functions {
             let function_name = function.name.clone().unwrap();
 
-            scope.set_entry(scope::ScopeEntry::Function(scope::ScopeFunction {
+            scope.set_entry(scope::Entry::Function(scope::Function {
                 name: function_name,
                 args: function
                     .args
@@ -87,7 +87,7 @@ impl File {
 
         for pair in inner {
             match pair.as_rule() {
-                parser::Rule::func => file.add_function(ast::Function::ast(pair)),
+                parser::Rule::func => file.add_function(ast::Func::ast(pair)),
                 parser::Rule::EOI => (),
 
                 _ => panic!("Invalid pair in file: {:?}", pair),

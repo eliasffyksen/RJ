@@ -2,16 +2,17 @@ use std::io;
 use std::slice;
 
 use crate::ast;
-use crate::ast::{expr, scope};
+use crate::ast::expr;
+use crate::ast::scope;
 use crate::parser;
 
 #[derive(Debug)]
-pub struct FunctionCall {
+pub struct FuncCall {
     identifier: ast::Ident,
-    input_expressions: expr::ExpressionList,
+    input_expressions: expr::List,
 }
 
-impl FunctionCall {
+impl FuncCall {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         assert!(pair.as_rule() == parser::Rule::func_call);
 
@@ -21,7 +22,7 @@ impl FunctionCall {
         for pair in pair.into_inner() {
             match pair.as_rule() {
                 parser::Rule::ident => identifier = Some(ast::Ident::ast(pair)),
-                parser::Rule::expr_list => expressions = Some(expr::ExpressionList::ast(pair)),
+                parser::Rule::expr_list => expressions = Some(expr::List::ast(pair)),
 
                 _ => unexpected_pair!(&pair),
             }
@@ -38,8 +39,8 @@ impl FunctionCall {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        return_data: &mut slice::IterMut<expr::ExpressionInput>,
-    ) -> Result<(), ast::SymbolError> {
+        return_data: &mut slice::IterMut<expr::Input>,
+    ) -> Result<(), ast::Error> {
         let function = self.get_function_from_scope(scope);
 
         let function_name = function.name.clone();
@@ -78,12 +79,12 @@ impl FunctionCall {
     fn get_function_from_scope<'a>(
         &self,
         scope: &'a mut impl scope::Scopable,
-    ) -> &'a scope::ScopeFunction {
+    ) -> &'a scope::Function {
         let function = scope
             .get_entry(&self.identifier)
             .expect("Function not in scope");
         let function = match function {
-            scope::ScopeEntry::Function(x) => x,
+            scope::Entry::Function(x) => x,
 
             _ => panic!(
                 "Expected {} to be function, but is {:?}",
@@ -104,14 +105,11 @@ impl FunctionCall {
         function
     }
 
-    fn generate_function_inputs(
-        &self,
-        function: &scope::ScopeFunction,
-    ) -> Vec<expr::ExpressionInput> {
+    fn generate_function_inputs(&self, function: &scope::Function) -> Vec<expr::Input> {
         function
             .args
             .iter()
-            .map(|t| expr::ExpressionInput {
+            .map(|t| expr::Input {
                 data_type: t.clone(),
                 store_to: None,
             })
@@ -120,10 +118,10 @@ impl FunctionCall {
 
     fn generate_temporary_variables<'a>(
         output: &mut impl std::io::Write,
-        function: &scope::ScopeFunction,
-        expression_inputs: &'a mut slice::IterMut<expr::ExpressionInput>,
+        function: &scope::Function,
+        expression_inputs: &'a mut slice::IterMut<expr::Input>,
         context: &mut ast::IRContext,
-    ) -> (Vec<String>, Vec<(usize, &'a mut expr::ExpressionInput)>) {
+    ) -> (Vec<String>, Vec<(usize, &'a mut expr::Input)>) {
         let mut post_call_moves = vec![];
         let mut return_variables = vec![];
 
@@ -170,14 +168,14 @@ impl FunctionCall {
         )
         .unwrap();
 
-        let mut store_to = format!("{}* %{}", data_type.get_ir_type(), temporary_variable);
+        let store_to = format!("{}* %{}", data_type.get_ir_type(), temporary_variable);
 
         (temporary_variable, store_to)
     }
 
     fn move_temporary_registers(
         output: &mut impl io::Write,
-        temporary_variables: Vec<(usize, &mut expr::ExpressionInput)>,
+        temporary_variables: Vec<(usize, &mut expr::Input)>,
         context: &mut ast::IRContext,
     ) {
         for (temporary_register, expression_input) in temporary_variables {
@@ -192,7 +190,7 @@ impl FunctionCall {
             )
             .unwrap();
 
-            let mut store_to = format!(
+            let store_to = format!(
                 "{} %{}",
                 expression_input.data_type.get_ir_type(),
                 output_register

@@ -7,20 +7,20 @@ use crate::ast::stmt;
 use crate::parser;
 
 #[derive(Debug, Default)]
-pub struct Function {
-    pub symbol: ast::SymbolRef,
+pub struct Func {
+    pub symbol: ast::Symbol,
     pub name: Option<ast::Ident>,
     pub block: stmt::Block,
     pub args: Vec<stmt::VarDecl>,
     pub ret_type: Vec<ast::Type>,
 }
 
-impl Function {
+impl Func {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         assert!(pair.as_rule() == parser::Rule::func);
 
-        let mut function: Function = Default::default();
-        function.symbol = ast::SymbolRef::from_pair(&pair);
+        let mut function: Func = Default::default();
+        function.symbol = ast::Symbol::from_pair(&pair);
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
@@ -65,7 +65,7 @@ impl Function {
         output: &mut impl std::io::Write,
         context: &mut ast::IRContext,
         scope: &impl scope::Scopable,
-    ) -> Result<(), ast::SymbolError> {
+    ) -> Result<(), ast::Error> {
         let name = match &self.name {
             Some(name) => name,
             _ => panic!(
@@ -85,7 +85,7 @@ impl Function {
         let has_returned = self.block.ir(output, context, &mut scope)?;
         if !has_returned {
             if self.ret_type.len() != 0 {
-                return Err(ast::SymbolError {
+                return Err(ast::Error {
                     error: Box::new("No return value".to_string()),
                     symbol: self.symbol.clone(),
                 });

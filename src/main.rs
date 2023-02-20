@@ -1,4 +1,5 @@
 #![feature(iterator_try_collect)]
+#![allow(dead_code)]
 
 extern crate pest;
 #[macro_use]
