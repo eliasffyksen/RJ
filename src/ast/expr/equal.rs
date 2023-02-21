@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 
@@ -53,111 +54,97 @@ impl Equal {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        expression_input: &mut expr::Input,
-    ) -> Result<(), ast::Error> {
-        let mut left_expression_input = vec![expr::Input {
+        request: expr::Req,
+    ) -> Result<Option<expr::Res>, ast::Error> {
+        let mut expression_requsts = VecDeque::new();
+        expression_requsts.push_back(expr::Req {
             data_type: ast::Type::Any,
             store_to: None,
-        }];
-
-        self.left.ir(
-            output,
-            context,
-            scope,
-            &mut left_expression_input.iter_mut(),
-        )?;
-        let left = left_expression_input.pop().unwrap();
-
-        let mut right_expression_input = vec![expr::Input {
+        });
+        expression_requsts.push_back(expr::Req {
             data_type: ast::Type::Any,
             store_to: None,
-        }];
+        });
 
-        self.right.ir(
-            output,
-            context,
-            scope,
-            &mut right_expression_input.iter_mut(),
-        )?;
-        let right = right_expression_input.pop().unwrap();
+        let left = self
+            .left
+            .ir(output, context, scope, &mut expression_requsts)?
+            .unwrap();
 
-        if left.data_type == right.data_type {
-            let success = match left.data_type {
-                ast::Type::I32 => {
-                    self.ir_compare_int(output, context, &left, &right, expression_input)?;
-                    true
-                }
-                ast::Type::Bool => {
-                    self.ir_compare_int(output, context, &left, &right, expression_input)?;
-                    true
-                }
-                _ => false,
-            };
-            if success {
-                return Ok(());
-            }
-        }
+        let right = self
+            .right
+            .ir(output, context, scope, &mut expression_requsts)?
+            .unwrap();
 
-        Err(ast::Error {
-            symbol: self.symbol.clone(),
-            error: Box::new(IncompatibleOperation {
-                operation: "==",
-                types: vec![left.data_type.clone(), right.data_type.clone()],
+        let result_register = if left.data_type == right.data_type {
+            self.ir_compare_same(output, context, left, right, request)
+        } else {
+            Err(())
+        };
+
+        let result_register = match result_register {
+            Ok(result_register) => Ok(result_register),
+
+            Err(_) => Err(ast::Error {
+                symbol: self.symbol.clone(),
+                error: Box::new(IncompatibleOperation {
+                    operation: "==",
+                    types: vec![left.data_type.clone(), right.data_type.clone()],
+                }),
             }),
-        })
+        }?;
+
+        let result = expr::Res {
+            data_type: ast::Type::Bool,
+            value: format!("%{}", result_register),
+        }
+        .fulfill(output, context, request);
+
+        match result {
+            Ok(result) => Ok(result),
+            Err(err) => Err(err.to_symbol_err(&self.symbol)),
+        }
     }
 
-    fn ir_compare_int(
+    fn ir_compare_same(
         &self,
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
-        left: &expr::Input,
-        right: &expr::Input,
-        expression_output: &mut expr::Input,
-    ) -> Result<(), ast::Error> {
-        // TODO: CHANGE THIS!!!!! HACK TO GET IT WORKING!
+        left: expr::Res,
+        right: expr::Res,
+        request: expr::Req,
+    ) -> Result<usize, ()> {
+        assert!(left.data_type == right.data_type);
+
+        let result_register = match left.data_type {
+            ast::Type::I32 => self.ir_compare_native(output, context, left, right, request),
+            ast::Type::Bool => self.ir_compare_native(output, context, left, right, request),
+
+            _ => return Err(()),
+        };
+
+        Ok(result_register)
+    }
+
+    fn ir_compare_native(
+        &self,
+        output: &mut impl io::Write,
+        context: &mut ast::IRContext,
+        left: expr::Res,
+        right: expr::Res,
+        request: expr::Req,
+    ) -> usize {
+        assert!(left.data_type == right.data_type);
+
         let result_register = context.claim_register();
-        let data_type = left.data_type.clone();
-        let left_value = left
-            .store_to
-            .clone()
-            .unwrap()
-            .split(" ")
-            .nth(1)
-            .unwrap()
-            .to_string();
-        let right_value = right
-            .store_to
-            .clone()
-            .unwrap()
-            .split(" ")
-            .nth(1)
-            .unwrap()
-            .to_string();
 
         writeln!(
             output,
             "  %{} = icmp eq {} {}, {}",
-            result_register, data_type, left_value, right_value
+            result_register, left.data_type, left.value, right.value,
         )
         .unwrap();
 
-        let value = format!("i1 %{}", result_register);
-        let value = expression_output.ir_convert(output, context, ast::Type::Bool, value.as_str());
-        let value = match value {
-            Ok(value) => value,
-            Err(err) => return Err(err.to_symbol_err(&self.symbol)),
-        };
-
-        match &expression_output.store_to {
-            Some(store_register) => {
-                writeln!(output, "  store {}, {}", value, store_register).unwrap();
-            }
-            None => {
-                expression_output.store_to = Some(value);
-            }
-        }
-
-        Ok(())
+        result_register
     }
 }

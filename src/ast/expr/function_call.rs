@@ -1,5 +1,5 @@
+use std::collections::VecDeque;
 use std::io;
-use std::slice;
 
 use crate::ast;
 use crate::ast::expr;
@@ -39,7 +39,7 @@ impl FuncCall {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        return_data: &mut slice::IterMut<expr::Input>,
+        return_data: &mut VecDeque<expr::Req>,
     ) -> Result<(), ast::Error> {
         let function = self.get_function_from_scope(scope);
 
@@ -105,39 +105,38 @@ impl FuncCall {
         function
     }
 
-    fn generate_function_inputs(&self, function: &scope::Function) -> Vec<expr::Input> {
+    fn generate_function_inputs(&self, function: &scope::Function) -> VecDeque<expr::Req> {
         function
             .args
             .iter()
-            .map(|t| expr::Input {
+            .map(|t| expr::Req {
                 data_type: t.clone(),
                 store_to: None,
             })
             .collect()
     }
 
-    fn generate_temporary_variables<'a>(
-        output: &mut impl std::io::Write,
+    fn generate_temporary_variables(
+        output: &mut impl io::Write,
         function: &scope::Function,
-        expression_inputs: &'a mut slice::IterMut<expr::Input>,
+        requests: &mut VecDeque<expr::Req>,
         context: &mut ast::IRContext,
-    ) -> (Vec<String>, Vec<(usize, &'a mut expr::Input)>) {
+    ) -> (Vec<String>, Vec<(usize, expr::Req)>) {
         let mut post_call_moves = vec![];
         let mut return_variables = vec![];
 
         for return_type in &function.returns {
-            let input = expression_inputs
-                .next()
+            let request = requests.pop_front()
                 .expect("function returns to many values");
 
-            if input.data_type != *return_type {
+            if request.data_type != *return_type {
                 panic!(
                     "Incompatible return type, expected {:?} got {:?}",
-                    return_type, input.data_type
+                    return_type, request.data_type
                 );
             }
 
-            if let Some(store_to) = &input.store_to {
+            if let Some(store_to) = &request.store_to {
                 return_variables.push(store_to.clone());
 
                 continue;
@@ -146,7 +145,7 @@ impl FuncCall {
             let (temporary_variable, store_to) =
                 Self::create_temporary_register(output, context, return_type);
 
-            post_call_moves.push((temporary_variable, input));
+            post_call_moves.push((temporary_variable, request));
             return_variables.push(store_to);
         }
 
@@ -175,7 +174,7 @@ impl FuncCall {
 
     fn move_temporary_registers(
         output: &mut impl io::Write,
-        temporary_variables: Vec<(usize, &mut expr::Input)>,
+        temporary_variables: Vec<(usize, expr::Req)>,
         context: &mut ast::IRContext,
     ) {
         for (temporary_register, expression_input) in temporary_variables {

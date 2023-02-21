@@ -6,6 +6,7 @@ mod function_call;
 pub use const_data::Const;
 pub use equal::Equal;
 pub use expression::Expr;
-pub use expression::Input;
+pub use expression::Req;
+pub use expression::Res;
 pub use expression::List;
 pub use function_call::FuncCall;

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt::Write;
 use std::io;
 use std::vec;
@@ -94,8 +95,8 @@ impl Stmt {
             }
 
             Stmt::FuncCall(function_call) => {
-                let mut empty: Vec<expr::Input> = vec![];
-                function_call.ir(output, context, scope, &mut empty.iter_mut())?;
+                let mut empty = VecDeque::new();
+                function_call.ir(output, context, scope, &mut empty)?;
                 Ok(false)
             }
 
@@ -118,14 +119,14 @@ impl Stmt {
                 let mut store_to = String::new();
                 write!(&mut store_to, "{}* %{}", t.get_ir_type(), i)?;
 
-                let result: Result<_, std::fmt::Error> = Ok(expr::Input {
+                let result: Result<_, std::fmt::Error> = Ok(expr::Req {
                     data_type: t.clone(),
                     store_to: Some(store_to),
                 });
 
                 result
             })
-            .try_collect::<Vec<expr::Input>>()
+            .try_collect::<VecDeque<expr::Req>>()
             .unwrap();
 
         func_return.ir(output, context, scope, &mut ret_type)?;
@@ -161,7 +162,7 @@ impl Stmt {
                         )
                         .unwrap();
 
-                        expr::Input {
+                        expr::Req {
                             data_type: variable.var_decl.var_type.clone(),
                             store_to: Some(store_to),
                         }

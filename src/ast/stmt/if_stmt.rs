@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 
 use crate::ast;
@@ -42,15 +43,15 @@ impl If {
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
     ) -> Result<bool, ast::Error> {
-        let mut condition_input = vec![expr::Input {
+        let mut condition_input = VecDeque::new();
+        condition_input.push_back(expr::Req {
             data_type: ast::Type::Bool,
             store_to: None,
-        }];
+        });
 
-        self.expression
-            .ir(output, context, scope, &mut condition_input.iter_mut())?;
-
-        let condition_input = condition_input.pop().unwrap();
+        let result = self.expression
+            .ir(output, context, scope, &mut condition_input)?
+            .unwrap();
 
         let label_if = context.claim_register();
         let mut block_if_output = vec![];
@@ -62,7 +63,7 @@ impl If {
         writeln!(
             output,
             "  br {}, label %{}, label %{}",
-            condition_input.store_to.unwrap(),
+            result,
             label_if,
             label_done
         )
