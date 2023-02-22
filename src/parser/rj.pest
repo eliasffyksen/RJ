@@ -66,12 +66,14 @@ pred_max = {
 cmp = {
   pred_max ~ (
     cmp_eq
+    | cmp_ne
     | cmp_lt
     | cmp_gt
   ) ~ pred_max
 }
 
 cmp_eq = { "==" }
+cmp_ne = { "!=" }
 cmp_lt = { "<" }
 cmp_gt = { ">" }
 
