@@ -30,12 +30,14 @@ impl fmt::Display for IncompatibleOperation {
 #[derive(Debug)]
 enum CmpOpp {
     Eq,
+    Lt,
 }
 
 impl CmpOpp {
     fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         match pair.as_rule() {
             parser::Rule::cmp_eq => CmpOpp::Eq,
+            parser::Rule::cmp_lt => CmpOpp::Lt,
 
             _ => unexpected_pair!(pair),
         }
@@ -44,12 +46,14 @@ impl CmpOpp {
     fn get_ir_opp(&self) -> &'static str {
         match self {
             CmpOpp::Eq => "eq",
+            CmpOpp::Lt => "slt",
         }
     }
 
     fn as_str(&self) -> &'static str {
         match self {
             CmpOpp::Eq => "==",
+            CmpOpp::Lt => "<",
         }
     }
 }
