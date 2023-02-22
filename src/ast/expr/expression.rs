@@ -7,6 +7,26 @@ use crate::ast::expr;
 use crate::ast::scope;
 use crate::parser;
 
+pub struct IncompatibleOperation {
+    pub operation: &'static str,
+    pub types: Vec<ast::Type>,
+}
+
+impl fmt::Display for IncompatibleOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Can not preform operation '{}' on incompatible types: {}",
+            self.operation,
+            self.types
+                .iter()
+                .map(|t| format!("{}", t))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+    }
+}
+
 pub struct ConversionError {
     from: ast::Type,
     to: ast::Type,
@@ -123,6 +143,7 @@ pub enum Expr {
     Const(expr::Const),
     FunctionCall(expr::FuncCall),
     Cmp(Box<expr::Cmp>),
+    Sum(Box<expr::Sum>),
 }
 
 impl Expr {
@@ -134,6 +155,7 @@ impl Expr {
             parser::Rule::int => return Expr::Const(expr::Const::ast(pair)),
             parser::Rule::func_call => return Expr::FunctionCall(expr::FuncCall::ast(pair)),
             parser::Rule::cmp => return Expr::Cmp(Box::new(expr::Cmp::ast(pair))),
+            parser::Rule::sum => return Expr::Sum(Box::new(expr::Sum::ast(pair))),
 
             _ => unexpected_pair!(pair),
         }
@@ -163,11 +185,17 @@ impl Expr {
                 function_call.ir(output, context, scope, requests)
             }
 
-            Expr::Cmp(equal) => {
+            Expr::Cmp(cmp) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
-                Ok(vec![equal.ir(output, context, scope, expression_input)?])
+                Ok(vec![cmp.ir(output, context, scope, expression_input)?])
             }
+
+            Expr::Sum(sum) => {
+                let expression_input = requests.pop_front().expect("Too many values to unpack");
+
+                Ok(vec![sum.ir(output, context, scope, expression_input)?])
+            },
         }
     }
 
@@ -228,6 +256,8 @@ fn depred(pair: parser::Pair<parser::Rule>) -> parser::Pair<parser::Rule> {
 
     while match pair.as_rule() {
         parser::Rule::pred_0 => true,
+        parser::Rule::pred_1 => true,
+        parser::Rule::pred_2 => true,
         parser::Rule::pred_max => true,
         parser::Rule::expr_elm => true,
 

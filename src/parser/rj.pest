@@ -54,7 +54,16 @@ expr_elm = {
 
 pred_0 = {
   cmp
-  | pred_max
+  | pred_1
+}
+
+pred_1 = {
+  sum
+  | pred_2
+}
+
+pred_2 = {
+  pred_max
 }
 
 pred_max = {
@@ -64,14 +73,14 @@ pred_max = {
 }
 
 cmp = {
-  pred_max ~ (
+  pred_1 ~ (
     cmp_eq
     | cmp_ne
     | cmp_le
     | cmp_ge
     | cmp_lt
     | cmp_gt
-  ) ~ pred_max
+  ) ~ pred_1
 }
 
 cmp_eq = { "==" }
@@ -80,6 +89,13 @@ cmp_lt = { "<" }
 cmp_le = { "<=" }
 cmp_gt = { ">" }
 cmp_ge = { ">=" }
+
+sum = {
+  pred_2 ~ (( add | sub ) ~ pred_2)+
+}
+
+add = { "+" }
+sub = { "-" }
 
 int = @{
   "-"? ~ '0'..'9'+

@@ -1,0 +1,15 @@
+
+fn main(): i32 {
+  result: i32
+  result = 1 + 5 - 3 + -2 - -7
+
+  if result != 8 {
+    return 1
+  }
+
+  if 1 + 2 == 3 {
+    return 0
+  }
+
+  return 1
+}

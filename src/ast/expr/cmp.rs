@@ -1,31 +1,10 @@
 use std::collections::VecDeque;
-use std::fmt;
 use std::io;
 
 use crate::ast;
 use crate::ast::expr;
 use crate::ast::scope;
 use crate::parser;
-
-struct IncompatibleOperation {
-    operation: &'static str,
-    types: Vec<ast::Type>,
-}
-
-impl fmt::Display for IncompatibleOperation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Can not preform operation '{}' on incompatible types: {}",
-            self.operation,
-            self.types
-                .iter()
-                .map(|t| format!("{}", t))
-                .collect::<Vec<_>>()
-                .join(", "),
-        )
-    }
-}
 
 #[derive(Debug)]
 enum CmpOp {
@@ -128,7 +107,7 @@ impl Cmp {
         if left.data_type != right.data_type {
             return Err(ast::Error {
                 symbol: self.symbol.clone(),
-                error: Box::new(IncompatibleOperation {
+                error: Box::new(expr::IncompatibleOperation {
                     operation: self.operation.as_str(),
                     types: vec![left.data_type.clone(), right.data_type.clone()],
                 }),
