@@ -28,20 +28,24 @@ impl fmt::Display for IncompatibleOperation {
 }
 
 #[derive(Debug)]
-enum CmpOpp {
+enum CmpOp {
     Eq,
     Ne,
     Lt,
+    Le,
     Gt,
+    Ge,
 }
 
-impl CmpOpp {
+impl CmpOp {
     fn ast(pair: parser::Pair<parser::Rule>) -> Self {
         match pair.as_rule() {
-            parser::Rule::cmp_eq => CmpOpp::Eq,
-            parser::Rule::cmp_ne => CmpOpp::Ne,
-            parser::Rule::cmp_lt => CmpOpp::Lt,
-            parser::Rule::cmp_gt => CmpOpp::Gt,
+            parser::Rule::cmp_eq => CmpOp::Eq,
+            parser::Rule::cmp_ne => CmpOp::Ne,
+            parser::Rule::cmp_lt => CmpOp::Lt,
+            parser::Rule::cmp_le => CmpOp::Le,
+            parser::Rule::cmp_gt => CmpOp::Gt,
+            parser::Rule::cmp_ge => CmpOp::Ge,
 
             _ => unexpected_pair!(pair),
         }
@@ -49,26 +53,30 @@ impl CmpOpp {
 
     fn get_ir_opp(&self) -> &'static str {
         match self {
-            CmpOpp::Eq => "eq",
-            CmpOpp::Ne => "ne",
-            CmpOpp::Lt => "slt",
-            CmpOpp::Gt => "sgt",
+            CmpOp::Eq => "eq",
+            CmpOp::Ne => "ne",
+            CmpOp::Lt => "slt",
+            CmpOp::Le => "sle",
+            CmpOp::Gt => "sgt",
+            CmpOp::Ge => "sge",
         }
     }
 
     fn as_str(&self) -> &'static str {
         match self {
-            CmpOpp::Eq => "==",
-            CmpOpp::Ne => "!=",
-            CmpOpp::Lt => "<",
-            CmpOpp::Gt => ">",
+            CmpOp::Eq => "==",
+            CmpOp::Ne => "!=",
+            CmpOp::Lt => "<",
+            CmpOp::Le => "<=",
+            CmpOp::Gt => ">",
+            CmpOp::Ge => ">=",
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Cmp {
-    operation: CmpOpp,
+    operation: CmpOp,
     left: expr::Expr,
     right: expr::Expr,
     symbol: ast::Symbol,
@@ -84,7 +92,7 @@ impl Cmp {
 
         Cmp {
             left: expr::Expr::ast(pairs.next().unwrap()),
-            operation: CmpOpp::ast(pairs.next().unwrap()),
+            operation: CmpOp::ast(pairs.next().unwrap()),
             right: expr::Expr::ast(pairs.next().unwrap()),
             symbol,
         }
