@@ -4,7 +4,41 @@ use std::io;
 use crate::ast;
 use crate::ast::expr;
 use crate::ast::scope;
+use crate::ast::IRContext;
 use crate::parser;
+
+struct ReturnVariable {
+    data_type: ast::Type,
+    store_to: String,
+    temporary: bool,
+}
+
+fn return_variables_to_results(
+    output: &mut impl io::Write,
+    context: &mut IRContext,
+    return_variables: Vec<ReturnVariable>,
+) -> Vec<Option<expr::Res>> {
+    return_variables
+        .into_iter()
+        .map(|return_variable| {
+            if !return_variable.temporary {
+                return None;
+            }
+
+            let register = context.claim_register();
+            writeln!(
+                output,
+                "  %{} = load {}, {}",
+                register, return_variable.data_type, return_variable.store_to,
+            ).unwrap();
+
+            Some(expr::Res {
+                data_type: return_variable.data_type,
+                value: format!("%{}", register),
+            })
+        })
+        .collect()
+}
 
 #[derive(Debug)]
 pub struct FuncCall {
@@ -39,29 +73,27 @@ impl FuncCall {
         output: &mut impl io::Write,
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
-        return_data: &mut VecDeque<expr::Req>,
-    ) -> Result<(), ast::Error> {
+        return_requests: &mut VecDeque<expr::Req>,
+    ) -> Result<Vec<Option<expr::Res>>, ast::Error> {
         let function = self.get_function_from_scope(scope);
 
         let function_name = function.name.clone();
-        let (return_variables, temporary_variables) =
-            Self::generate_temporary_variables(output, function, return_data, context);
+        let return_variables =
+            Self::generate_return_variables(output, function, return_requests, context);
 
         let mut function_inputs = self.generate_function_inputs(function);
 
-        self.input_expressions
-            .ir(output, context, scope, &mut function_inputs)?;
+        let mut llvm_call_args: Vec<String> = return_variables
+            .iter().map(|r| r.store_to.clone()).collect();
 
-        let mut llvm_call_args = vec![];
-
-        for variable in return_variables {
-            llvm_call_args.push(variable);
-        }
-
-        for input in function_inputs {
-            let store_to = input.store_to.unwrap();
-            llvm_call_args.push(store_to);
-        }
+        llvm_call_args.extend(self
+            .input_expressions
+            .ir(output, context, scope, &mut function_inputs)?
+            .into_iter()
+            .map(|result| {
+                let result = result.unwrap();
+                format!("{}", result)
+            }));
 
         writeln!(
             output,
@@ -71,9 +103,7 @@ impl FuncCall {
         )
         .unwrap();
 
-        Self::move_temporary_registers(output, temporary_variables, context);
-
-        Ok(())
+        Ok(return_variables_to_results(output, context, return_variables))
     }
 
     fn get_function_from_scope<'a>(
@@ -116,17 +146,17 @@ impl FuncCall {
             .collect()
     }
 
-    fn generate_temporary_variables(
+    fn generate_return_variables(
         output: &mut impl io::Write,
         function: &scope::Function,
         requests: &mut VecDeque<expr::Req>,
         context: &mut ast::IRContext,
-    ) -> (Vec<String>, Vec<(usize, expr::Req)>) {
-        let mut post_call_moves = vec![];
-        let mut return_variables = vec![];
+    ) -> Vec<ReturnVariable> {
+        let mut result = vec![];
 
         for return_type in &function.returns {
-            let request = requests.pop_front()
+            let request = requests
+                .pop_front()
                 .expect("function returns to many values");
 
             if request.data_type != *return_type {
@@ -136,66 +166,27 @@ impl FuncCall {
                 );
             }
 
-            if let Some(store_to) = &request.store_to {
-                return_variables.push(store_to.clone());
+            if let Some(store_to) = request.store_to {
+                result.push(ReturnVariable {
+                    data_type: return_type.clone(),
+                    store_to,
+                    temporary: false,
+                });
 
                 continue;
             }
 
-            let (temporary_variable, store_to) =
-                Self::create_temporary_register(output, context, return_type);
+            let temporary_variable = context.claim_register();
 
-            post_call_moves.push((temporary_variable, request));
-            return_variables.push(store_to);
+            writeln!(output, "  %{} = alloca {}", temporary_variable, return_type,).unwrap();
+
+            result.push(ReturnVariable {
+                data_type: return_type.clone(),
+                store_to: format!("{}* %{}", return_type, temporary_variable),
+                temporary: true,
+            });
         }
 
-        (return_variables, post_call_moves)
-    }
-
-    fn create_temporary_register(
-        output: &mut impl std::io::Write,
-        context: &mut ast::IRContext,
-        data_type: &ast::Type,
-    ) -> (usize, String) {
-        let temporary_variable = context.claim_register();
-
-        writeln!(
-            output,
-            "  %{} = alloca {}",
-            temporary_variable,
-            data_type.get_ir_type()
-        )
-        .unwrap();
-
-        let store_to = format!("{}* %{}", data_type.get_ir_type(), temporary_variable);
-
-        (temporary_variable, store_to)
-    }
-
-    fn move_temporary_registers(
-        output: &mut impl io::Write,
-        temporary_variables: Vec<(usize, expr::Req)>,
-        context: &mut ast::IRContext,
-    ) {
-        for (temporary_register, expression_input) in temporary_variables {
-            let output_register = context.claim_register();
-            writeln!(
-                output,
-                "  %{} = load {}, {}* %{}",
-                output_register,
-                expression_input.data_type.get_ir_type(),
-                expression_input.data_type.get_ir_type(),
-                temporary_register,
-            )
-            .unwrap();
-
-            let store_to = format!(
-                "{} %{}",
-                expression_input.data_type.get_ir_type(),
-                output_register
-            );
-
-            expression_input.store_to = Some(store_to);
-        }
+        result
     }
 }

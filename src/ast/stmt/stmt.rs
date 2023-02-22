@@ -177,7 +177,8 @@ impl Stmt {
             })
             .collect();
 
-        expressions.ir(output, context, scope, &mut expression_inputs)
+        expressions.ir(output, context, scope, &mut expression_inputs)?;
+        Ok(())
     }
 }
 

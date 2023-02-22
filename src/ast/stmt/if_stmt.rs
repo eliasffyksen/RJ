@@ -50,8 +50,8 @@ impl If {
         });
 
         let result = self.expression
-            .ir(output, context, scope, &mut condition_input)?
-            .unwrap();
+            .ir(output, context, scope, &mut condition_input)?;
+        let result = result.into_iter().next().unwrap().unwrap();
 
         let label_if = context.claim_register();
         let mut block_if_output = vec![];

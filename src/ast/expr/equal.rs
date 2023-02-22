@@ -68,16 +68,21 @@ impl Equal {
 
         let left = self
             .left
-            .ir(output, context, scope, &mut expression_requsts)?
-            .unwrap();
+            .ir(output, context, scope, &mut expression_requsts)?;
+        let left = left.into_iter().next().unwrap().unwrap();
 
         let right = self
             .right
-            .ir(output, context, scope, &mut expression_requsts)?
-            .unwrap();
+            .ir(output, context, scope, &mut expression_requsts)?;
+        let right = right.into_iter().next().unwrap().unwrap();
+
+        let error = IncompatibleOperation {
+            operation: "==",
+            types: vec![left.data_type.clone(), right.data_type.clone()],
+        };
 
         let result_register = if left.data_type == right.data_type {
-            self.ir_compare_same(output, context, left, right, request)
+            self.ir_compare_same(output, context, left, right)
         } else {
             Err(())
         };
@@ -87,10 +92,7 @@ impl Equal {
 
             Err(_) => Err(ast::Error {
                 symbol: self.symbol.clone(),
-                error: Box::new(IncompatibleOperation {
-                    operation: "==",
-                    types: vec![left.data_type.clone(), right.data_type.clone()],
-                }),
+                error: Box::new(error),
             }),
         }?;
 
@@ -98,7 +100,7 @@ impl Equal {
             data_type: ast::Type::Bool,
             value: format!("%{}", result_register),
         }
-        .fulfill(output, context, request);
+        .fulfill(output, request);
 
         match result {
             Ok(result) => Ok(result),
@@ -112,13 +114,12 @@ impl Equal {
         context: &mut ast::IRContext,
         left: expr::Res,
         right: expr::Res,
-        request: expr::Req,
     ) -> Result<usize, ()> {
         assert!(left.data_type == right.data_type);
 
         let result_register = match left.data_type {
-            ast::Type::I32 => self.ir_compare_native(output, context, left, right, request),
-            ast::Type::Bool => self.ir_compare_native(output, context, left, right, request),
+            ast::Type::I32 => self.ir_compare_native(output, context, left, right),
+            ast::Type::Bool => self.ir_compare_native(output, context, left, right),
 
             _ => return Err(()),
         };
@@ -132,7 +133,6 @@ impl Equal {
         context: &mut ast::IRContext,
         left: expr::Res,
         right: expr::Res,
-        request: expr::Req,
     ) -> usize {
         assert!(left.data_type == right.data_type);
 

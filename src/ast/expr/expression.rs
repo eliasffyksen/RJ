@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt;
-use std::fmt::Write;
 use std::io;
-use std::slice;
 
 use crate::ast;
 use crate::ast::expr;
@@ -43,7 +41,7 @@ pub struct Res {
 
 impl fmt::Display for Res {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.data_type, self.value)
+        write!(f, "{} {}", self.data_type.get_ir_type(), self.value)
     }
 }
 
@@ -51,61 +49,24 @@ impl Res {
     pub fn fulfill(
         self,
         output: &mut impl io::Write,
-        context: &mut ast::IRContext,
         request: Req,
     ) -> Result<Option<Self>, ConversionError> {
-        if request.data_type != self.data_type {
-            self = self.ir_convert(output, context, request)?;
+        if request.data_type != self.data_type && request.data_type != ast::Type::Any {
+            return Err(ConversionError {
+                from: self.data_type,
+                to: request.data_type,
+            });
         }
 
         let store_to = match request.store_to {
-            None => return Ok(Some(self)),
             Some(store_to) => store_to,
+
+            None => return Ok(Some(self)),
         };
 
-        writeln!(output, "  store {}, {}", self, store_to);
+        writeln!(output, "  store {}, {}", self, store_to).unwrap();
 
         Ok(None)
-    }
-
-    fn ir_convert(
-        self,
-        output: &mut impl io::Write,
-        context: &mut ast::IRContext,
-        request: Req,
-    ) -> Result<Self, ConversionError> {
-        match request.data_type {
-            ast::Type::Any => Ok(self),
-            ast::Type::Bool => self.ir_convert_bool(output, context),
-
-            _ => Err(ConversionError {
-                from: self.data_type,
-                to: request.data_type,
-            }),
-        }
-    }
-
-    pub fn ir_convert_bool(
-        self,
-        output: &mut impl io::Write,
-        context: &mut ast::IRContext,
-    ) -> Result<Self, ConversionError> {
-        match self.data_type {
-            ast::Type::Bool => {
-                let register = context.claim_register();
-                writeln!(output, "  %{} = icmp ne {}, 0", register, self).unwrap();
-
-                Ok(Self {
-                    data_type: ast::Type::Bool,
-                    value: format!("%{}", register)
-                })
-            },
-
-            _ => Err(ConversionError {
-                from: self.data_type,
-                to: ast::Type::Bool,
-            }),
-        }
     }
 }
 
@@ -137,7 +98,7 @@ impl List {
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
         requests: &mut VecDeque<expr::Req>,
-    ) -> Result<(), ast::Error> {
+    ) -> Result<Vec<Option<Res>>, ast::Error> {
         if requests.len() != self.expressions.len() {
             panic!(
                 "Incorrect expression list count, expected {} values got {}",
@@ -146,11 +107,13 @@ impl List {
             )
         }
 
+        let mut result = vec![];
+
         for expression in &self.expressions {
-            expression.ir(output, context, scope, &mut requests)?;
+            result.extend(expression.ir(output, context, scope, requests)?);
         }
 
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -182,29 +145,28 @@ impl Expr {
         context: &mut ast::IRContext,
         scope: &mut impl scope::Scopable,
         requests: &mut VecDeque<Req>,
-    ) -> Result<Option<Res>, ast::Error> {
+    ) -> Result<Vec<Option<Res>>, ast::Error> {
         match self {
             Expr::Ident(ident) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
-                Self::ir_ident(ident, output, context, scope, expression_input)
+                Ok(vec![Self::ir_ident(ident, output, context, scope, expression_input)?])
             }
 
             Expr::Const(const_data) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
-                const_data.ir(output, context, expression_input)
+                Ok(vec![const_data.ir(output, expression_input)?])
             }
 
             Expr::FunctionCall(function_call) => {
-                function_call.ir(output, context, scope, requests);
-                todo!()
+                function_call.ir(output, context, scope, requests)
             }
 
             Expr::Eq(equal) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
-                equal.ir(output, context, scope, expression_input)
+                Ok(vec![equal.ir(output, context, scope, expression_input)?])
             }
         }
     }
@@ -248,11 +210,12 @@ impl Expr {
                 let result = Res {
                     data_type: var_type,
                     value: format!("%{}", dst_register),
-                }.fulfill(output, context, request);
+                }
+                .fulfill(output, request);
 
                 match result {
                     Ok(result) => Ok(result),
-                    Err(err) => todo!(),
+                    Err(_) => todo!(),
                 }
             }
             None => panic!("Unknown identifier: {:?}", ident),

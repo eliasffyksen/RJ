@@ -27,10 +27,9 @@ impl Const {
     pub fn ir(
         &self,
         output: &mut impl io::Write,
-        context: &mut ast::IRContext,
         request: expr::Req,
     ) -> Result<Option<expr::Res>, ast::Error> {
-        match self.value.clone().fulfill(output, context, request) {
+        match self.value.clone().fulfill(output, request) {
             Ok(result) => Ok(result),
             Err(err) => Err(err.to_symbol_err(&self.symbol)),
         }

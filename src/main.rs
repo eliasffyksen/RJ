@@ -9,7 +9,7 @@ mod ast;
 mod config;
 mod parser;
 
-fn main() {
+fn main() -> Result<(), ()> {
     let config = config::Config::new();
 
     let file = ast::File::read_file(config.file_name.as_str());
@@ -30,6 +30,8 @@ fn main() {
     let mut context: ast::IRContext = Default::default();
 
     if config.emit_llvm {
-        file.ir(&mut out, &mut context);
+        return file.ir(&mut out, &mut context);
     }
+
+    Ok(())
 }

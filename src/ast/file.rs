@@ -45,9 +45,11 @@ impl File {
         self.functions.insert(name.get().to_string(), function);
     }
 
-    pub fn ir(&self, out: &mut impl io::Write, context: &mut ast::IRContext) {
+    pub fn ir(&self, out: &mut impl io::Write, context: &mut ast::IRContext) -> Result<(), ()> {
         writeln!(out, "source_filename = \"{}\"", self.name).unwrap();
         writeln!(out).unwrap();
+
+        let mut success = true;
 
         let mut scope: scope::Scope = Default::default();
 
@@ -70,10 +72,19 @@ impl File {
         for (_, function) in &self.functions {
             match function.ir(out, context, &scope) {
                 Ok(_) => (),
-                Err(err) => err.display(&mut io::stderr(), &self.name, &self.input),
+                Err(err) => {
+                    success = false;
+                    err.display(&mut io::stderr(), &self.name, &self.input)
+                },
             }
             writeln!(out).unwrap();
         }
+
+        if !success {
+            return Err(())
+        }
+
+        Ok(())
     }
 
     pub fn ast(pair: Pair<parser::Rule>) -> File {
