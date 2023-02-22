@@ -31,6 +31,7 @@ impl fmt::Display for IncompatibleOperation {
 enum CmpOpp {
     Eq,
     Lt,
+    Gt,
 }
 
 impl CmpOpp {
@@ -38,6 +39,7 @@ impl CmpOpp {
         match pair.as_rule() {
             parser::Rule::cmp_eq => CmpOpp::Eq,
             parser::Rule::cmp_lt => CmpOpp::Lt,
+            parser::Rule::cmp_gt => CmpOpp::Gt,
 
             _ => unexpected_pair!(pair),
         }
@@ -47,6 +49,7 @@ impl CmpOpp {
         match self {
             CmpOpp::Eq => "eq",
             CmpOpp::Lt => "slt",
+            CmpOpp::Gt => "sgt",
         }
     }
 
@@ -54,6 +57,7 @@ impl CmpOpp {
         match self {
             CmpOpp::Eq => "==",
             CmpOpp::Lt => "<",
+            CmpOpp::Gt => ">",
         }
     }
 }

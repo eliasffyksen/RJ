@@ -1,10 +1,10 @@
 mod const_data;
-mod equal;
+mod cmp;
 mod expression;
 mod function_call;
 
 pub use const_data::Const;
-pub use equal::Cmp;
+pub use cmp::Cmp;
 pub use expression::Expr;
 pub use expression::Req;
 pub use expression::Res;

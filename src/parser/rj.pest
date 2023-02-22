@@ -67,11 +67,13 @@ cmp = {
   pred_max ~ (
     cmp_eq
     | cmp_lt
+    | cmp_gt
   ) ~ pred_max
 }
 
 cmp_eq = { "==" }
 cmp_lt = { "<" }
+cmp_gt = { ">" }
 
 int = @{
   "-"? ~ '0'..'9'+
