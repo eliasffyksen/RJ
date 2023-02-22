@@ -159,7 +159,7 @@ impl FuncCall {
                 .pop_front()
                 .expect("function returns to many values");
 
-            if request.data_type != *return_type {
+            if request.data_type != *return_type && request.data_type != ast::Type::Any {
                 panic!(
                     "Incompatible return type, expected {:?} got {:?}",
                     return_type, request.data_type
@@ -178,7 +178,7 @@ impl FuncCall {
 
             let temporary_variable = context.claim_register();
 
-            writeln!(output, "  %{} = alloca {}", temporary_variable, return_type,).unwrap();
+            writeln!(output, "  %{} = alloca {}", temporary_variable, return_type).unwrap();
 
             result.push(ReturnVariable {
                 data_type: return_type.clone(),
