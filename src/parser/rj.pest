@@ -53,7 +53,7 @@ expr_elm = {
 }
 
 pred_0 = {
-  equal
+  cmp
   | pred_max
 }
 
@@ -63,8 +63,14 @@ pred_max = {
   | ident
 }
 
-equal = {
-  pred_max ~ "==" ~ pred_max
+cmp = {
+  pred_max ~ (
+    cmp_eq
+  ) ~ pred_max
+}
+
+cmp_eq = {
+  "=="
 }
 
 int = @{

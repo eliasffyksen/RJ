@@ -28,22 +28,51 @@ impl fmt::Display for IncompatibleOperation {
 }
 
 #[derive(Debug)]
-pub struct Equal {
+enum CmpOpp {
+    Eq,
+}
+
+impl CmpOpp {
+    fn ast(pair: parser::Pair<parser::Rule>) -> Self {
+        match pair.as_rule() {
+            parser::Rule::cmp_eq => CmpOpp::Eq,
+
+            _ => unexpected_pair!(pair),
+        }
+    }
+
+    fn get_ir_opp(&self) -> &'static str {
+        match self {
+            CmpOpp::Eq => "eq",
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            CmpOpp::Eq => "==",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Cmp {
+    operation: CmpOpp,
     left: expr::Expr,
     right: expr::Expr,
     symbol: ast::Symbol,
 }
 
-impl Equal {
-    pub fn ast(pair: parser::Pair<parser::Rule>) -> Equal {
-        assert!(pair.as_rule() == parser::Rule::equal);
+impl Cmp {
+    pub fn ast(pair: parser::Pair<parser::Rule>) -> Cmp {
+        assert!(pair.as_rule() == parser::Rule::cmp);
 
         let symbol = ast::Symbol::from_pair(&pair);
 
         let mut pairs = pair.into_inner();
 
-        Equal {
+        Cmp {
             left: expr::Expr::ast(pairs.next().unwrap()),
+            operation: CmpOpp::ast(pairs.next().unwrap()),
             right: expr::Expr::ast(pairs.next().unwrap()),
             symbol,
         }
@@ -76,25 +105,28 @@ impl Equal {
             .ir(output, context, scope, &mut expression_requsts)?;
         let right = right.into_iter().next().unwrap().unwrap();
 
-        let error = IncompatibleOperation {
-            operation: "==",
-            types: vec![left.data_type.clone(), right.data_type.clone()],
-        };
-
-        let result_register = if left.data_type == right.data_type {
-            self.ir_compare_same(output, context, left, right)
-        } else {
-            Err(())
-        };
-
-        let result_register = match result_register {
-            Ok(result_register) => Ok(result_register),
-
-            Err(_) => Err(ast::Error {
+        if left.data_type != right.data_type {
+            return Err(ast::Error {
                 symbol: self.symbol.clone(),
-                error: Box::new(error),
-            }),
-        }?;
+                error: Box::new(IncompatibleOperation {
+                    operation: self.operation.as_str(),
+                    types: vec![left.data_type.clone(), right.data_type.clone()],
+                }),
+            });
+        }
+
+        let result_register = context.claim_register();
+
+        writeln!(
+            output,
+            "  %{} = icmp {} {} {}, {}",
+            result_register,
+            self.operation.get_ir_opp(),
+            left.data_type,
+            left.value,
+            right.value,
+        )
+        .unwrap();
 
         let result = expr::Res {
             data_type: ast::Type::Bool,
@@ -106,45 +138,5 @@ impl Equal {
             Ok(result) => Ok(result),
             Err(err) => Err(err.to_symbol_err(&self.symbol)),
         }
-    }
-
-    fn ir_compare_same(
-        &self,
-        output: &mut impl io::Write,
-        context: &mut ast::IRContext,
-        left: expr::Res,
-        right: expr::Res,
-    ) -> Result<usize, ()> {
-        assert!(left.data_type == right.data_type);
-
-        let result_register = match left.data_type {
-            ast::Type::I32 => self.ir_compare_native(output, context, left, right),
-            ast::Type::Bool => self.ir_compare_native(output, context, left, right),
-
-            _ => return Err(()),
-        };
-
-        Ok(result_register)
-    }
-
-    fn ir_compare_native(
-        &self,
-        output: &mut impl io::Write,
-        context: &mut ast::IRContext,
-        left: expr::Res,
-        right: expr::Res,
-    ) -> usize {
-        assert!(left.data_type == right.data_type);
-
-        let result_register = context.claim_register();
-
-        writeln!(
-            output,
-            "  %{} = icmp eq {} {}, {}",
-            result_register, left.data_type, left.value, right.value,
-        )
-        .unwrap();
-
-        result_register
     }
 }

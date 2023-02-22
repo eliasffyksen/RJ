@@ -4,7 +4,7 @@ mod expression;
 mod function_call;
 
 pub use const_data::Const;
-pub use equal::Equal;
+pub use equal::Cmp;
 pub use expression::Expr;
 pub use expression::Req;
 pub use expression::Res;

@@ -122,7 +122,7 @@ pub enum Expr {
     Ident(ast::Ident),
     Const(expr::Const),
     FunctionCall(expr::FuncCall),
-    Eq(Box<expr::Equal>),
+    Cmp(Box<expr::Cmp>),
 }
 
 impl Expr {
@@ -133,7 +133,7 @@ impl Expr {
             parser::Rule::ident => return Expr::Ident(ast::Ident::ast(pair)),
             parser::Rule::int => return Expr::Const(expr::Const::ast(pair)),
             parser::Rule::func_call => return Expr::FunctionCall(expr::FuncCall::ast(pair)),
-            parser::Rule::equal => return Expr::Eq(Box::new(expr::Equal::ast(pair))),
+            parser::Rule::cmp => return Expr::Cmp(Box::new(expr::Cmp::ast(pair))),
 
             _ => unexpected_pair!(pair),
         }
@@ -163,7 +163,7 @@ impl Expr {
                 function_call.ir(output, context, scope, requests)
             }
 
-            Expr::Eq(equal) => {
+            Expr::Cmp(equal) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
                 Ok(vec![equal.ir(output, context, scope, expression_input)?])
