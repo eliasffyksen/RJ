@@ -1,6 +1,6 @@
 BUILD_PATH?=./build
-DYNAMIC_LINKER?=/lib/ld-linux-x86-64.so.2
-LD_LIBRARY_PATH?=/lib
+RJ_DYNAMIC_LINKER?=/lib/ld-linux-x86-64.so.2
+RJ_LD_LIBRARY_PATH?=/lib
 
 TEST_SRC=$(wildcard test/*.rj)
 TESTS=$(TEST_SRC:test/%.rj=%)
@@ -29,5 +29,5 @@ $(BUILD_PATH)/%.o: $(BUILD_PATH)/%.ll
 	llc --filetype obj -o $@ $^
 
 $(BUILD_PATH)/%: $(BUILD_PATH)/%.o $(BUILD_PATH)/stdlib/start.o
-	ld.lld --dynamic-linker $(DYNAMIC_LINKER) -L$(LD_LIBRARY_PATH) -lc -o $@ $^
+	ld.lld --dynamic-linker $(RJ_DYNAMIC_LINKER) -L$(RJ_LD_LIBRARY_PATH) -lc -o $@ $^
 

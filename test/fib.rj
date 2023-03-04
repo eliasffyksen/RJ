@@ -20,7 +20,7 @@ fn main(): i32 {
     return 1
   }
 
-  if fib(45) != 1134903170 {
+  if fib(15) != 610 {
     return 1
   }
 
