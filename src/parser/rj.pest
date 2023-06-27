@@ -34,6 +34,11 @@ stmt = {
 
 if_stmt = {
   "if" ~ expr_elm ~ block
+  ~ else_stmt?
+}
+
+else_stmt = {
+  "else" ~ block
 }
 
 func_ret = {
