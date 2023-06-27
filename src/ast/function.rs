@@ -122,19 +122,17 @@ impl Func {
 
             arguments.push((arg.clone(), register));
 
-            write!(output, "{} %{}", arg.var_type.get_ir_type(), register)?;
+            write!(output, "{} %_{}", arg.var_type.get_ir_type(), register)?;
         }
 
         writeln!(output, ") {{")?;
-
-        context.claim_register();
 
         for (arg, input_register) in arguments {
             let output_register = arg.ir(output, context, scope)?;
 
             writeln!(
                 output,
-                "  store {} %{}, {}* %{}",
+                "  store {} %_{}, {}* %_{}",
                 arg.var_type.get_ir_type(),
                 input_register,
                 arg.var_type.get_ir_type(),
@@ -157,7 +155,7 @@ impl Func {
                 write!(output, ", ")?;
             }
 
-            write!(output, "{}* %{}", var_type.get_ir_type(), register)?;
+            write!(output, "{}* %_{}", var_type.get_ir_type(), register)?;
         }
 
         Ok(())

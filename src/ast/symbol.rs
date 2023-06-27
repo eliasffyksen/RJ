@@ -23,6 +23,6 @@ impl Symbol {
 
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.line, self.column)
+        write!(f, "_{}:{}", self.line, self.column)
     }
 }

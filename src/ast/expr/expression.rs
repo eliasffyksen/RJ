@@ -227,7 +227,7 @@ impl Expr {
 
                 writeln!(
                     output,
-                    "  %{} = load {}, {}* %{}",
+                    "  %_{} = load {}, {}* %_{}",
                     dst_register,
                     var_type.get_ir_type(),
                     var_type.get_ir_type(),
@@ -237,7 +237,7 @@ impl Expr {
 
                 let result = Res {
                     data_type: var_type,
-                    value: format!("%{}", dst_register),
+                    value: format!("%_{}", dst_register),
                 }
                 .fulfill(output, request);
 

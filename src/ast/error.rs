@@ -13,7 +13,7 @@ impl Error {
     pub fn display(&self, output: &mut dyn io::Write, file_name: &str, input: &str) {
         writeln!(
             output,
-            "{}:{}:{}: Error: {}",
+            "_{}:{}:{}: Error: {}",
             file_name, self.symbol.line, self.symbol.column, self.error
         )
         .unwrap();

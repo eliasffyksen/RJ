@@ -109,7 +109,7 @@ impl Sum {
 
             writeln!(
                 output,
-                "  %{} = {} i32 {}, {}",
+                "  %_{} = {} i32 {}, {}",
                 register,
                 operation.get_ir_op(),
                 last.value,
@@ -119,7 +119,7 @@ impl Sum {
 
             last = expr::Res {
                 data_type: ast::Type::I32,
-                value: format!("%{}", register),
+                value: format!("%_{}", register),
             }
         }
 

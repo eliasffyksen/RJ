@@ -117,7 +117,7 @@ impl Stmt {
             .enumerate()
             .map(|(i, t)| {
                 let mut store_to = String::new();
-                write!(&mut store_to, "{}* %{}", t.get_ir_type(), i)?;
+                write!(&mut store_to, "{}* %_{}", t.get_ir_type(), i)?;
 
                 let result: Result<_, std::fmt::Error> = Ok(expr::Req {
                     data_type: t.clone(),
@@ -156,7 +156,7 @@ impl Stmt {
                         let mut store_to = String::new();
                         write!(
                             &mut store_to,
-                            "{}* %{}",
+                            "{}* %_{}",
                             variable.var_decl.var_type.get_ir_type(),
                             variable.register
                         )
@@ -224,7 +224,7 @@ impl VarDecl {
         let register = context.claim_register();
         writeln!(
             out,
-            "  %{} = alloca {}",
+            "  %_{} = alloca {}",
             register,
             self.var_type.get_ir_type()
         )?;

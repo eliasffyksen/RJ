@@ -62,7 +62,7 @@ impl If {
 
         writeln!(
             output,
-            "  br {}, label %{}, label %{}",
+            "  br {}, label %_{}, label %_{}",
             result,
             label_if,
             label_done
@@ -70,14 +70,14 @@ impl If {
         .unwrap();
         writeln!(output).unwrap();
 
-        writeln!(output, "{}:", label_if).unwrap();
+        writeln!(output, "_{}:", label_if).unwrap();
         output.write(&block_if_output).unwrap();
         if !if_returned {
-            writeln!(output, "  br label %{}", label_done).unwrap();
+            writeln!(output, "  br label %_{}", label_done).unwrap();
         }
 
         writeln!(output).unwrap();
-        writeln!(output, "{}:", label_done).unwrap();
+        writeln!(output, "_{}:", label_done).unwrap();
 
         Ok(false)
     }

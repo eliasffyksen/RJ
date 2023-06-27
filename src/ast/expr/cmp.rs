@@ -118,7 +118,7 @@ impl Cmp {
 
         writeln!(
             output,
-            "  %{} = icmp {} {} {}, {}",
+            "  %_{} = icmp {} {} {}, {}",
             result_register,
             self.operation.get_ir_opp(),
             left.data_type,
@@ -129,7 +129,7 @@ impl Cmp {
 
         let result = expr::Res {
             data_type: ast::Type::Bool,
-            value: format!("%{}", result_register),
+            value: format!("%_{}", result_register),
         }
         .fulfill(output, request);
 

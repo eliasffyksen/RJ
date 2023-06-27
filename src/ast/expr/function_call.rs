@@ -28,13 +28,13 @@ fn return_variables_to_results(
             let register = context.claim_register();
             writeln!(
                 output,
-                "  %{} = load {}, {}",
+                "  %_{} = load {}, {}",
                 register, return_variable.data_type, return_variable.store_to,
             ).unwrap();
 
             Some(expr::Res {
                 data_type: return_variable.data_type,
-                value: format!("%{}", register),
+                value: format!("%_{}", register),
             })
         })
         .collect()
@@ -178,11 +178,11 @@ impl FuncCall {
 
             let temporary_variable = context.claim_register();
 
-            writeln!(output, "  %{} = alloca {}", temporary_variable, return_type).unwrap();
+            writeln!(output, "  %_{} = alloca {}", temporary_variable, return_type).unwrap();
 
             result.push(ReturnVariable {
                 data_type: return_type.clone(),
-                store_to: format!("{}* %{}", return_type, temporary_variable),
+                store_to: format!("{}* %_{}", return_type, temporary_variable),
                 temporary: true,
             });
         }
