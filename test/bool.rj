@@ -1,0 +1,16 @@
+
+
+fn main(): i32 {
+  condition: bool
+  condition = 123 == 321
+
+  if condition {
+    return 1
+  }
+
+  if condition == false {
+    return 0
+  }
+
+  return 2
+}

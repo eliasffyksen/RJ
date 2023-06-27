@@ -153,6 +153,7 @@ impl Expr {
         match pair.as_rule() {
             parser::Rule::ident => return Expr::Ident(ast::Ident::ast(pair)),
             parser::Rule::int => return Expr::Const(expr::Const::ast(pair)),
+            parser::Rule::bool => return Expr::Const(expr::Const::ast(pair)),
             parser::Rule::func_call => return Expr::FunctionCall(expr::FuncCall::ast(pair)),
             parser::Rule::cmp => return Expr::Cmp(Box::new(expr::Cmp::ast(pair))),
             parser::Rule::sum => return Expr::Sum(Box::new(expr::Sum::ast(pair))),
@@ -172,7 +173,13 @@ impl Expr {
             Expr::Ident(ident) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
-                Ok(vec![Self::ir_ident(ident, output, context, scope, expression_input)?])
+                Ok(vec![Self::ir_ident(
+                    ident,
+                    output,
+                    context,
+                    scope,
+                    expression_input,
+                )?])
             }
 
             Expr::Const(const_data) => {
@@ -181,9 +188,7 @@ impl Expr {
                 Ok(vec![const_data.ir(output, expression_input)?])
             }
 
-            Expr::FunctionCall(function_call) => {
-                function_call.ir(output, context, scope, requests)
-            }
+            Expr::FunctionCall(function_call) => function_call.ir(output, context, scope, requests),
 
             Expr::Cmp(cmp) => {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
@@ -195,7 +200,7 @@ impl Expr {
                 let expression_input = requests.pop_front().expect("Too many values to unpack");
 
                 Ok(vec![sum.ir(output, context, scope, expression_input)?])
-            },
+            }
         }
     }
 
@@ -246,7 +251,10 @@ impl Expr {
                     Err(_) => todo!(),
                 }
             }
-            None => panic!("Unknown identifier: {:?}", ident),
+            None => Err(ast::Error {
+                error: Box::new(format!("unknown identifier {}", ident.get())),
+                symbol: ident.symbol.clone(),
+            }),
         }
     }
 }

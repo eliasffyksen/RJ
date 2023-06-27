@@ -74,6 +74,7 @@ pred_2 = {
 pred_max = {
   func_call
   | int
+  | bool
   | ident
 }
 
@@ -106,6 +107,8 @@ int = @{
   "-"? ~ '0'..'9'+
 }
 
+bool = { "true" | "false" }
+
 func_call = {
   ident ~ "(" ~ expr_list? ~ ")"
 }
@@ -116,6 +119,7 @@ var_decl = {
 
 var_type = {
   "i32"
+  | "bool"
 }
 
 file = {

@@ -12,15 +12,33 @@ pub struct Const {
 
 impl Const {
     pub fn ast(pair: parser::Pair<parser::Rule>) -> Const {
-        assert!(pair.as_rule() == parser::Rule::int);
-
-        Const {
-            value: expr::Res {
-                data_type: ast::Type::I32,
-                value: pair.as_str().parse::<i32>()
-                    .expect("Failed to parse int").to_string(),
+        match pair.as_rule() {
+            parser::Rule::int => Const {
+                value: expr::Res {
+                    data_type: ast::Type::I32,
+                    value: pair
+                        .as_str()
+                        .parse::<i32>()
+                        .expect("Failed to parse int")
+                        .to_string(),
+                },
+                symbol: ast::Symbol::from_pair(&pair),
             },
-            symbol: ast::Symbol::from_pair(&pair),
+
+            parser::Rule::bool => Const {
+                value: expr::Res {
+                    data_type: ast::Type::Bool,
+                    value: match pair.as_str() {
+                        "true" => "1".to_string(),
+                        "false" => "0".to_string(),
+
+                        _ => unexpected_pair!(pair),
+                    }
+                },
+                symbol: ast::Symbol::from_pair(&pair),
+            },
+
+            _ => unexpected_pair!(pair),
         }
     }
 

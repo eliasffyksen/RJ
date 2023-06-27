@@ -25,6 +25,7 @@ impl Type {
 
         match pair.as_str() {
             "i32" => Type::I32,
+            "bool" => Type::Bool,
 
             _ => panic!("Unknown type {:?}", pair),
         }
@@ -35,7 +36,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match self {
             Type::I32 => "i32",
-            Type::Bool => "bool",
+            Type::Bool => "i1",
             Type::Any => panic!("Attempted to get display value of Any"),
         };
 
