@@ -19,7 +19,7 @@
 		"keywords": {
 			"patterns": [{
 				"name": "keyword.control.rj",
-				"match": "\\b(return|if)\\b"
+				"match": "\\b(return|if|else)\\b"
 			}, {
 				"name": "keyword.other.rj",
 				"match": "\\bfn\\b"
