@@ -6,6 +6,7 @@ extern crate pest;
 extern crate pest_derive;
 
 mod ast;
+mod ast_pool;
 mod config;
 mod parser;
 
