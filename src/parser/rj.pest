@@ -1,23 +1,18 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 func = {
-  "fn" ~ ident ~ arg_def
-  ~ (":" ~ ret_type)?
+  "fn" ~ ident
+  ~ "(" ~ (var_decl ~ ("," ~ var_decl)*)? ~ ")"
+  ~ (":" ~ ret_type ~ ("," ~ ret_type)*)?
   ~ block
 }
 
 ret_type = {
-  var_type ~ ("," ~ var_type)*
+  var_type
 }
 
 ident = @{
   ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
-}
-
-arg_def= {
-  "("
-  ~ (var_decl ~ ("," ~ var_decl)*)?
-  ~ ")"
 }
 
 block = {
@@ -50,7 +45,7 @@ assign = {
 }
 
 expr_list = {
-  expr_elm ~ ("," ~ expr_elm)*
+  (expr_elm ~ ("," ~ expr_elm)*)?
 }
 
 expr_elm = {
@@ -110,7 +105,7 @@ int = @{
 bool = { "true" | "false" }
 
 func_call = {
-  ident ~ "(" ~ expr_list? ~ ")"
+  ident ~ "(" ~ expr_list ~ ")"
 }
 
 var_decl = {
@@ -122,6 +117,6 @@ var_type = {
   | "bool"
 }
 
-file = {
+module = {
   SOI ~ func* ~ EOI
 }

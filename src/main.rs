@@ -1,38 +1,32 @@
 #![feature(iterator_try_collect)]
 #![allow(dead_code)]
 
+use std::io;
+
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
 mod ast;
-mod ast_pool;
 mod config;
 mod parser;
 
-fn main() -> Result<(), ()> {
+fn main() -> io::Result<()> {
     let config = config::Config::new();
 
-    let file = ast::File::read_file(config.file_name.as_str());
-    let file = match file {
-        Ok(file) => file,
-        Err(err) => {
-            println!("Syntax error: {}", err);
-            panic!()
-        }
-    };
+    let pool = parser::from_file(&config.file_name)?;
 
     if config.emit_ast {
-        println!("{:#?}", file);
+        println!("{:#?}", pool);
     }
 
-    let mut out = std::io::stdout();
+    // let mut out = std::io::stdout();
 
-    let mut context: ast::IRContext = Default::default();
+    // let mut context: ast::IRContext = Default::default();
 
-    if config.emit_llvm {
-        return file.ir(&mut out, &mut context);
-    }
+    // if config.emit_llvm {
+    //     return file.ir(&mut out, &mut context);
+    // }
 
     Ok(())
 }

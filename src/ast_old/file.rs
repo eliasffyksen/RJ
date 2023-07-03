@@ -21,7 +21,7 @@ pub struct File {
 impl File {
     pub fn read_file(filename: &'_ str) -> Result<File, Error<parser::Rule>> {
         let input = fs::read_to_string(filename).expect("Error reading file");
-        let pair = parser::Parser::parse(parser::Rule::file, input.as_str())?
+        let pair = parser::Parser::parse(parser::Rule::module, input.as_str())?
             .next()
             .unwrap();
 
@@ -91,7 +91,7 @@ impl File {
         let mut file: File = Default::default();
 
         let inner = match pair.as_rule() {
-            parser::Rule::file => pair.into_inner(),
+            parser::Rule::module => pair.into_inner(),
 
             _ => panic!("Trying to generate file from non file pair {:?}", pair),
         };
