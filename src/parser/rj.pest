@@ -37,7 +37,7 @@ else_stmt = {
 }
 
 func_ret = {
-  "return" ~ expr_list?
+  "return" ~ expr_list
 }
 
 assign = {

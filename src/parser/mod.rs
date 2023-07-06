@@ -16,6 +16,7 @@ mod function;
 mod block;
 mod variable;
 mod statement;
+mod expression;
 
 pub use module::from_file;
 

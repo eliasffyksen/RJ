@@ -11,7 +11,7 @@ impl ASTParser for ast::Block {
         let mut statements = vec![];
 
         for pair in pair.into_inner() {
-            statements.push(ast::Statement::parse(pool, pair))
+            statements.push(ast::statement::Statement::parse(pool, pair))
         }
 
         let block = ast::Block {

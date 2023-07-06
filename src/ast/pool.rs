@@ -23,7 +23,9 @@ impl<T: PoolType + Debug> Clone for PoolRef<T> {
 impl<T: PoolType> Copy for PoolRef<T> {}
 
 pub trait PoolType: Debug + Sized {
-    fn get(pool: &mut Pool, pool_ref: PoolRef<Self>) -> &mut Self;
+    fn get(pool: &Pool, pool_ref: PoolRef<Self>) -> &Self;
+
+    fn get_mut(pool: &mut Pool, pool_ref: PoolRef<Self>) -> &mut Self;
 
     fn to_node(pool_ref: Self) -> Node;
 
@@ -36,9 +38,20 @@ pub trait PoolType: Debug + Sized {
 macro_rules! impl_pool_type {
     ($enum:path, $type:path) => {
         impl PoolType for $type {
-            fn get(pool: &mut Pool, pool_ref: PoolRef<Self>) -> &mut Self
+            fn get_mut(pool: &mut Pool, pool_ref: PoolRef<Self>) -> &mut Self
             {
                 let data = &mut pool.data[pool_ref.pool_id];
+
+                match data {
+                    $enum(node) => node,
+
+                    _ => panic!("tried to get wrong pool node type"),
+                }
+            }
+
+            fn get(pool: &Pool, pool_ref: PoolRef<Self>) -> &Self
+            {
+                let data = &pool.data[pool_ref.pool_id];
 
                 match data {
                     $enum(node) => node,
@@ -73,11 +86,11 @@ impl Pool {
         T::pool_ref(self.data.len() - 1)
     }
 
-    pub fn get<T>(&mut self, pool_ref: PoolRef<T>) -> &mut T
+    pub fn get_mut<T>(&mut self, pool_ref: PoolRef<T>) -> &mut T
     where
         T: PoolType + Sized
     {
-        T::get(self, pool_ref)
+        T::get_mut(self, pool_ref)
     }
 }
 
@@ -86,12 +99,18 @@ pub enum Node {
     Function(Function),
     Variable(Variable),
     Block(Block),
-    Statement(Statement),
+    Statement(statement::Statement),
+    Return(statement::Return),
     Module(Module),
+    Expression(expression::Expression),
+    ExpressionList(expression::List),
 }
 
 impl_pool_type!(Node::Function, Function);
 impl_pool_type!(Node::Variable, Variable);
 impl_pool_type!(Node::Block, Block);
-impl_pool_type!(Node::Statement, Statement);
+impl_pool_type!(Node::Statement, statement::Statement);
+impl_pool_type!(Node::Return, statement::Return);
 impl_pool_type!(Node::Module, Module);
+impl_pool_type!(Node::Expression, expression::Expression);
+impl_pool_type!(Node::ExpressionList, expression::List);
