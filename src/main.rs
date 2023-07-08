@@ -14,7 +14,7 @@ mod parser;
 fn main() -> io::Result<()> {
     let config = config::Config::new();
 
-    let pool = parser::from_file(&config.file_name)?;
+    let pool = parser::from_file(config.file_name)?;
 
     if config.emit_ast {
         println!("{:#?}", pool);

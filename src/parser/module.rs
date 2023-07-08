@@ -3,10 +3,10 @@ use std::{fs, io};
 use super::*;
 use crate::ast as ast;
 
-pub fn from_file(path: &String) -> io::Result<ast::Pool> {
-    let mut pool = ast::Pool::new();
+pub fn from_file(path: String) -> io::Result<ast::Pool> {
+    let input = fs::read_to_string(&path)?;
 
-    let input = fs::read_to_string(path)?;
+    let mut pool = ast::Pool::new(path, input.clone());
 
     let pair = Parser::parse(Rule::module, input.as_str())
         .unwrap()

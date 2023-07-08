@@ -70,12 +70,18 @@ macro_rules! impl_pool_type {
 
 #[derive(Debug)]
 pub struct Pool {
+    pub path: String,
+    pub input: String,
     data: Vec<Node>,
 }
 
 impl Pool {
-    pub fn new() -> Pool {
-        Pool { data: Vec::new() }
+    pub fn new(path: String, input: String) -> Pool {
+        Pool {
+            path,
+            input,
+            data: Vec::new(),
+        }
     }
 
     pub fn add<T>(&mut self, node: T) -> PoolRef<T>
