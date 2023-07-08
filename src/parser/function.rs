@@ -8,6 +8,7 @@ impl ASTParser for ast::Function {
     {
         assert!(pair.as_rule() == Rule::func);
 
+        let symbol = ast::Symbol::from_pair(&pair);
         let mut name = None;
         let mut args = vec![];
         let mut block = None;
@@ -25,6 +26,7 @@ impl ASTParser for ast::Function {
         }
 
         let function = ast::Function {
+            symbol,
             name: name.expect("no name defined for function"),
             args,
             block: block.expect("no block defined"),

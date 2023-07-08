@@ -9,6 +9,7 @@ impl ASTParser for ast::Variable {
     {
         assert!(pair.as_rule() == Rule::var_decl);
 
+        let symbol = ast::Symbol::from_pair(&pair);
         let mut name = None;
         let mut _type = None;
 
@@ -22,8 +23,9 @@ impl ASTParser for ast::Variable {
         }
 
         let variable = ast::Variable {
+            symbol,
             name: name.expect("no name for variable"),
-            _type: _type.expect("no type for variable"),
+            type_: _type.expect("no type for variable"),
         };
 
         pool.add(variable)

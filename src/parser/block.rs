@@ -8,6 +8,7 @@ impl ASTParser for ast::Block {
     {
         assert!(pair.as_rule() == Rule::block);
 
+        let symbol = ast::Symbol::from_pair(&pair);
         let mut statements = vec![];
 
         for pair in pair.into_inner() {
@@ -15,6 +16,7 @@ impl ASTParser for ast::Block {
         }
 
         let block = ast::Block {
+            symbol: symbol,
             statements,
         };
 

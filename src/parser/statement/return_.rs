@@ -8,6 +8,7 @@ impl parser::ASTParser for ast::statement::Return {
     {
         assert!(pair.as_rule() == parser::Rule::func_ret);
 
+        let symbol = ast::Symbol::from_pair(&pair);
         let mut expression_list = None;
 
         for pair in pair.into_inner() {
@@ -19,6 +20,7 @@ impl parser::ASTParser for ast::statement::Return {
         }
 
         let return_ = ast::statement::Return{
+            symbol,
             expressions: expression_list.expect("no expression list in return statement"),
         };
 

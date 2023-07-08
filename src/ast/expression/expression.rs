@@ -1,5 +1,12 @@
+use crate::ast;
+
+#[derive(Debug)]
+pub struct Constant {
+    pub symbol: ast::Symbol,
+    pub value: String,
+}
 
 #[derive(Debug)]
 pub enum Expression {
-    Const(String),
+    Constant(ast::PoolRef<Constant>),
 }

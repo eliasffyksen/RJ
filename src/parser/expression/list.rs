@@ -8,15 +8,19 @@ impl parser::ASTParser for ast::expression::List {
     {
         assert!(pair.as_rule() == parser::Rule::expr_list);
 
-        let expressions = vec![];
+        let symbol = ast::Symbol::from_pair(&pair);
+        let mut expressions = vec![];
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
+                parser::Rule::expr_elm => expressions.push(ast::expression::Expression::parse(pool, pair)),
+
                 _ => unexpected_pair!(pair),
             }
         }
 
-        let expression_list = ast::expression::List{
+        let expression_list = ast::expression::List {
+            symbol,
             list: expressions,
         };
 

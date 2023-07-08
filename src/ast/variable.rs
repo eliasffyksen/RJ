@@ -2,6 +2,7 @@ use super::*;
 
 #[derive(Debug)]
 pub struct Variable {
+    pub symbol: Symbol,
     pub name: String,
-    pub _type: Type,
+    pub type_: Type,
 }
