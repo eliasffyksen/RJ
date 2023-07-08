@@ -68,10 +68,11 @@ pred_2 = {
 
 pred_max = {
   func_call
-  | int
-  | bool
   | ident
+  | literal
 }
+
+literal = { int | bool }
 
 cmp = {
   pred_1 ~ (

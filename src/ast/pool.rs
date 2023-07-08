@@ -110,7 +110,7 @@ pub enum Node {
     Module(Module),
     ExpressionList(expression::List),
     Expression(expression::Expression),
-    Constant(expression::Constant),
+    Constant(expression::Literal),
 }
 
 impl_pool_type!(Node::Function, Function);
@@ -119,6 +119,6 @@ impl_pool_type!(Node::Block, Block);
 impl_pool_type!(Node::Statement, statement::Statement);
 impl_pool_type!(Node::Return, statement::Return);
 impl_pool_type!(Node::Module, Module);
-impl_pool_type!(Node::Constant, expression::Constant);
+impl_pool_type!(Node::Constant, expression::Literal);
 impl_pool_type!(Node::Expression, expression::Expression);
 impl_pool_type!(Node::ExpressionList, expression::List);
