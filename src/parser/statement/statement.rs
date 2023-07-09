@@ -23,6 +23,9 @@ impl parser::ASTParser for ast::statement::Statement {
             parser::Rule::if_stmt => ast::statement::Statement::If(
                 (ast::statement::If::parse(pool, pair), pool.len()),
             ),
+            parser::Rule::func_call => ast::statement::Statement::Call(
+                (ast::Call::parse(pool, pair), pool.len()),
+            ),
 
             _ => unexpected_pair!(pair),
         };

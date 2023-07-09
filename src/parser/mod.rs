@@ -18,6 +18,7 @@ mod variable;
 mod statement;
 mod expression;
 mod ident;
+mod call;
 
 pub use module::from_file;
 

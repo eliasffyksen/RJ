@@ -8,6 +8,7 @@ use super::*;
 #[derive(Debug, Hash)]
 pub enum Statement {
     VariableDeclaration((PoolRef<Variable>, usize)),
+    Call((PoolRef<Call>, usize)),
     Assignment((PoolRef<Assignment>, usize)),
     If((PoolRef<If>, usize)),
     Return((PoolRef<Return>, usize)),
@@ -20,6 +21,7 @@ impl Dot for Statement {
             Statement::Assignment((node, id)) => (id, node.dot(output)?),
             Statement::If((node, id)) => (id, node.dot(output)?),
             Statement::Return((node, id)) => (id, node.dot(output)?),
+            Statement::Call((node, id)) => (id, node.dot(output)?),
         };
 
         let mut label = String::new();

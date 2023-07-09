@@ -3,5 +3,7 @@ fn fib(n: i32): i32 {
     return 1
   }
 
+  fib(n - 123)
+
   return n - 2
 }

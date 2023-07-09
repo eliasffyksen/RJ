@@ -69,11 +69,6 @@ impl Pool {
 
     pub fn graph(&self, output: &mut dyn io::Write) -> io::Result<()> {
         writeln!(output, "digraph {{")?;
-        writeln!(output, "rankdir=\"LR\";")?;
-
-        if self.data.len() == 0 {
-            panic!("pool empty")
-        }
 
         for node in &self.data {
             node.dot(output)?;
@@ -115,6 +110,7 @@ pub enum Node {
     Variable(Variable),
     Block(Block),
     Ident(Ident),
+    Call(Call),
 
     Statement(statement::Statement),
     Return(statement::Return),
@@ -136,6 +132,7 @@ impl Node {
             Node::Block(node) => node,
             Node::Variable(node) => node,
             Node::Ident(node) => node,
+            Node::Call(node) => node,
 
             Node::Statement(node) => node,
             Node::Return(node) => node,
@@ -190,6 +187,7 @@ impl_pool_type!(Node::Function, Function);
 impl_pool_type!(Node::Block, Block);
 impl_pool_type!(Node::Variable, Variable);
 impl_pool_type!(Node::Ident, Ident);
+impl_pool_type!(Node::Call, Call);
 
 impl_pool_type!(Node::Statement, statement::Statement);
 impl_pool_type!(Node::Return, statement::Return);
