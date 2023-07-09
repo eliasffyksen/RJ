@@ -2,24 +2,18 @@ use std::fmt::Write as _;
 
 use dot::DotLabel;
 
-use super::*;
+use super::Symbol;
 
 #[derive(Debug, Dot, Hash)]
-pub struct Function {
+pub struct Ident {
     pub id: usize,
     #[display]
     pub symbol: Symbol,
-    #[graph]
-    pub ident: PoolRef<Ident>,
-    #[graph]
-    pub args: Vec<PoolRef<Variable>>,
-    #[graph]
-    pub block: PoolRef<Block>,
     #[display]
-    pub return_type: TypeList,
+    pub name: String,
 }
 
-impl DotLabel for Function {
+impl DotLabel for Ident {
     fn dot_label(&self) -> String {
         let mut label = String::new();
         write!(label, "ast_node_{}", self.id).unwrap();

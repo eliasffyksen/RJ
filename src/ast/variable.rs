@@ -9,8 +9,8 @@ pub struct Variable {
     pub id: usize,
     #[display]
     pub symbol: Symbol,
-    #[display]
-    pub name: String,
+    #[graph]
+    pub name: PoolRef<Ident>,
     pub type_: Type,
 }
 

@@ -15,7 +15,7 @@ impl ASTParser for ast::Variable {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::ident => name = Some(pair.as_str().to_string()),
+                Rule::ident => name = Some(ast::Ident::parse(pool, pair)),
                 Rule::var_type => _type = Some(ast::Type::from_str(pair.as_str())),
 
                 _ => unexpected_pair!(pair),

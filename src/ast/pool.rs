@@ -113,6 +113,7 @@ pub enum Node {
     Function(Function),
     Variable(Variable),
     Block(Block),
+    Ident(Ident),
     Statement(statement::Statement),
     Return(statement::Return),
     Module(Module),
@@ -127,6 +128,7 @@ impl Node {
             Node::Function(node) => node,
             Node::Variable(node) => node,
             Node::Block(node) => node,
+            Node::Ident(node) => node,
             Node::Statement(node) => node,
             Node::Return(node) => node,
             Node::Module(node) => node,
@@ -174,6 +176,7 @@ macro_rules! impl_pool_type {
 impl_pool_type!(Node::Function, Function);
 impl_pool_type!(Node::Variable, Variable);
 impl_pool_type!(Node::Block, Block);
+impl_pool_type!(Node::Ident, Ident);
 impl_pool_type!(Node::Statement, statement::Statement);
 impl_pool_type!(Node::Return, statement::Return);
 impl_pool_type!(Node::Module, Module);

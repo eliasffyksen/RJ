@@ -16,7 +16,7 @@ impl ASTParser for ast::Function {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::ident => name = Some(pair.as_str().to_string()),
+                Rule::ident => name = Some(ast::Ident::parse(pool, pair)),
                 Rule::var_decl => args.push(ast::Variable::parse(pool, pair)),
                 Rule::block => block = Some(ast::Block::parse(pool, pair)),
                 Rule::ret_type => return_type.push(ast::Type::from_str(pair.as_str())),
@@ -28,7 +28,7 @@ impl ASTParser for ast::Function {
         let function = ast::Function {
             id: pool.len(),
             symbol,
-            name: name.expect("no name defined for function"),
+            ident: name.expect("no name defined for function"),
             args,
             block: block.expect("no block defined"),
             return_type: ast::TypeList { list: return_type },
