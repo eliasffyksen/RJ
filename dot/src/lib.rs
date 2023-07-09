@@ -27,10 +27,10 @@ impl<T: Dot + Hash> Dot for Vec<T> {
 
         writeln!(output, "\"];")?;
 
-        for item in self.iter() {
+        for (i, item) in self.iter().enumerate() {
             let to_label = item.dot(output)?;
 
-            writeln!(output, "{} -> {};", label, to_label)?;
+            writeln!(output, "{}:{} -> {};", label, i, to_label)?;
         }
 
         Ok(label)
