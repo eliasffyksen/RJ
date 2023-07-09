@@ -7,9 +7,9 @@ use super::*;
 #[derive(Debug, Dot, Hash)]
 pub struct Variable {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: Symbol,
-    #[graph]
+    #[dot_edge]
     pub name: PoolRef<Ident>,
     pub type_: Type,
 }

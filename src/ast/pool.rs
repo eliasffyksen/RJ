@@ -124,6 +124,7 @@ pub enum Node {
     ExpressionList(expression::ExpressionList),
     Expression(expression::Expression),
     Literal(expression::Literal),
+    Cmp(expression::Cmp),
 }
 
 impl Node {
@@ -143,6 +144,7 @@ impl Node {
             Node::ExpressionList(node) => node,
             Node::Expression(node) => node,
             Node::Literal(node) => node,
+            Node::Cmp(node) => node,
         };
 
         node.dot(output)?;
@@ -195,3 +197,4 @@ impl_pool_type!(Node::If, statement::If);
 impl_pool_type!(Node::Expression, expression::Expression);
 impl_pool_type!(Node::ExpressionList, expression::ExpressionList);
 impl_pool_type!(Node::Literal, expression::Literal);
+impl_pool_type!(Node::Cmp, expression::Cmp);

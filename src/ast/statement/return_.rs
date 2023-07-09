@@ -6,9 +6,9 @@ use crate::ast;
 #[derive(Debug, Dot, Hash)]
 pub struct Return {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: ast::Symbol,
-    #[graph]
+    #[dot_edge]
     pub expressions: ast::PoolRef<ast::expression::ExpressionList>,
 }
 

@@ -6,9 +6,10 @@ impl parser::ASTParser for ast::expression::Expression {
     where
         Self: ast::PoolType,
     {
-        assert!(pair.as_rule() == parser::Rule::expr_elm);
+        if pair.as_rule() == parser::Rule::expr_elm {
+            pair = pair.into_inner().next().expect("no pair in expression");
+        }
 
-        pair = pair.into_inner().next().expect("no pair in expression");
         let pair = unpred(pair);
 
         let expression = match pair.as_rule() {
@@ -17,6 +18,9 @@ impl parser::ASTParser for ast::expression::Expression {
             ),
             parser::Rule::ident => ast::expression::Expression::Ident(
                 (ast::Ident::parse(pool, pair), pool.len())
+            ),
+            parser::Rule::cmp => ast::expression::Expression::Cmp(
+                (ast::expression::Cmp::parse(pool, pair), pool.len())
             ),
 
             _ => unexpected_pair!(pair),

@@ -1,14 +1,7 @@
-
-
-fn swap(input_a: i32, input_b: i32): i32, i32 {
-  var_a: i32
-  var_b: i32
-
-  if var_a {
-
+fn fib(n: i32): i32 {
+  if n < 3 {
+    return 1
   }
 
-  var_a, var_b = input_b, input_a
-
-  return var_a, var_b
+  return n
 }

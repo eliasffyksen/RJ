@@ -7,7 +7,7 @@ use super::*;
 #[derive(Debug, Dot, Hash)]
 pub struct Module {
     pub id: usize,
-    #[graph]
+    #[dot_edge]
     pub functions: Vec<PoolRef<Function>>,
 }
 

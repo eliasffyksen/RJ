@@ -8,9 +8,9 @@ use crate::ast;
 #[derive(Debug, Dot, Hash)]
 pub struct ExpressionList {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: ast::Symbol,
-    #[graph]
+    #[dot_edge]
     pub list: Vec<ast::PoolRef<Expression>>,
 }
 

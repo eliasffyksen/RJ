@@ -7,9 +7,9 @@ use crate::ast::{Ident, PoolRef, expression::ExpressionList};
 #[derive(Debug, Dot, Hash)]
 pub struct Assignment {
     pub id: usize,
-    #[graph]
+    #[dot_edge]
     pub targets: Vec<PoolRef<Ident>>,
-    #[graph]
+    #[dot_edge]
     pub expressions: PoolRef<ExpressionList>,
 }
 

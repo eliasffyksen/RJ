@@ -6,9 +6,9 @@ use crate::ast;
 #[derive(Debug, Hash, Dot)]
 pub struct Literal {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: ast::Symbol,
-    #[display]
+    #[dot_display]
     pub value: String,
 }
 

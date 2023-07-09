@@ -7,9 +7,9 @@ use super::Symbol;
 #[derive(Debug, Dot, Hash)]
 pub struct Ident {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: Symbol,
-    #[display]
+    #[dot_display]
     pub name: String,
 }
 

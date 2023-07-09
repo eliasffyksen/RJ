@@ -7,9 +7,9 @@ use super::*;
 #[derive(Debug, Dot, Hash)]
 pub struct Block {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: Symbol,
-    #[graph]
+    #[dot_edge]
     pub statements: Vec<PoolRef<statement::Statement>>,
 }
 

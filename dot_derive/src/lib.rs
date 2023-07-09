@@ -4,7 +4,7 @@
 use quote::{quote};
 use syn::{parse_macro_input, DeriveInput, Data};
 
-#[proc_macro_derive(Dot, attributes(display, graph))]
+#[proc_macro_derive(Dot, attributes(dot_display, dot_edge))]
 pub fn derive_dot(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -22,13 +22,13 @@ pub fn derive_dot(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 };
 
                 if let Some(path) = attr.meta.path().get_ident() {
-                    if path == "display" {
+                    if path == "dot_display" {
                         field_impl.push(quote!{
                             write!(output, "|{}: {}", stringify!(#name), self.#name)?;
                         });
                     }
 
-                    if path == "graph" {
+                    if path == "dot_edge" {
                         field_impl.push(quote!{
                             write!(output, "|<{}> {}", stringify!(#name), stringify!(#name))?;
                         });

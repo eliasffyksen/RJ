@@ -7,9 +7,9 @@ use crate::ast::{PoolRef, expression::Expression, Block};
 #[derive(Debug,Dot,Hash)]
 pub struct If {
     pub id: usize,
-    #[graph]
+    #[dot_edge]
     pub condition: PoolRef<Expression>,
-    #[graph]
+    #[dot_edge]
     pub if_block: PoolRef<Block>,
 }
 

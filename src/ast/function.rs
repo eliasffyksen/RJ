@@ -7,15 +7,15 @@ use super::*;
 #[derive(Debug, Dot, Hash)]
 pub struct Function {
     pub id: usize,
-    #[display]
+    #[dot_display]
     pub symbol: Symbol,
-    #[graph]
+    #[dot_edge]
     pub ident: PoolRef<Ident>,
-    #[graph]
+    #[dot_edge]
     pub args: Vec<PoolRef<Variable>>,
-    #[graph]
+    #[dot_edge]
     pub block: PoolRef<Block>,
-    #[display]
+    #[dot_display]
     pub return_type: TypeList,
 }
 
