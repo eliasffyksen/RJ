@@ -9,6 +9,7 @@ use crate::ast;
 pub enum Expression {
     Literal((ast::PoolRef<Literal>, usize)),
     Ident((ast::PoolRef<ast::Ident>, usize)),
+    Call((ast::PoolRef<ast::Call>, usize)),
     Cmp((ast::PoolRef<ast::expression::Cmp>, usize)),
     Sum((ast::PoolRef<ast::expression::Sum>, usize)),
 }
@@ -18,6 +19,7 @@ impl Dot for Expression {
         let (to_label, id) = match self {
             Expression::Literal((node, id)) => (node.dot(output)?, *id),
             Expression::Ident((node, id)) => (node.dot(output)?, *id),
+            Expression::Call((node, id)) => (node.dot(output)?, *id),
             Expression::Cmp((node, id)) => (node.dot(output)?, *id),
             Expression::Sum((node, id)) => (node.dot(output)?, *id),
         };

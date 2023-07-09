@@ -19,6 +19,9 @@ impl parser::ASTParser for ast::expression::Expression {
             parser::Rule::ident => ast::expression::Expression::Ident(
                 (ast::Ident::parse(pool, pair), pool.len())
             ),
+            parser::Rule::func_call => ast::expression::Expression::Call(
+                (ast::Call::parse(pool, pair), pool.len())
+            ),
             parser::Rule::cmp => ast::expression::Expression::Cmp(
                 (ast::expression::Cmp::parse(pool, pair), pool.len())
             ),
