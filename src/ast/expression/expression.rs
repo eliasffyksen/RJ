@@ -2,24 +2,24 @@ use std::fmt::Write as _;
 
 use dot::Dot;
 
-use crate::ast;
 use super::*;
+use crate::ast;
 
 #[derive(Debug, Hash)]
 pub enum Expression {
     Literal((ast::PoolRef<Literal>, usize)),
+    Ident((ast::PoolRef<ast::Ident>, usize)),
 }
 
 impl Dot for Expression {
     fn dot(&self, output: &mut dyn std::io::Write) -> std::io::Result<String> {
-        let (node, id) = match self {
-            Expression::Literal(node) => node,
+        let (to_label, id) = match self {
+            Expression::Literal((node, id)) => (node.dot(output)?, *id),
+            Expression::Ident((node, id)) => (node.dot(output)?, *id),
         };
 
         let mut label = String::new();
         write!(label, "ast_node_{}", id).unwrap();
-
-        let to_label = node.dot(output)?;
 
         writeln!(output, "{} [ shape = point ];", label)?;
         writeln!(output, "{} -> {};", label, to_label)?;
