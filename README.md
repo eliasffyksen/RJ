@@ -5,46 +5,57 @@ Are you too smart for [golang](https://go.dev/), but too dumb for [rust](https:/
 Fear not, you are not alone!
 
 RJ to the rescue - *The brand new hipster language no one asked for*
+## Pipeline
 
-## Current status
+### AST (src/ast)
 
-### The good news
-
-It successfully compiles to to LLVM IR.
-
-file `example/main.rj`:
+The AST is written as an acyclic graph. You can view any AST by running:
+```sh
+cargo run -- <FILE> --emit-ast
 ```
-fn test(a: i32): i32, i32, i32 {
-  b: i32
-  b = 666
-  return a, b, 123
-}
+However, due to the memory structure making heavy use of `PoolRef`s (referenced by indexes in the AST pool)
+it is very hard to reason about.
 
+To output a graph in dot language you can run:
+```sh
+cargo run -- <FILE> --emit-ast-graph
 ```
 
-Compiled with `cargo run example/main.rj --emit-llvm` compiles to:
+Here is an example on the following code:
 ```
-source_filename = "example/test.rj"
+fn fib(n: i32): i32 {
+  if n < 3 {
+    return 1
+  }
 
-define void @test(i32* %0, i32* %1, i32* %2, i32 %3) {
-  %5 = alloca i32
-  store i32 %3, i32* %5
-  %6 = alloca i32
-
-  store i32 666, i32* %6
-
-  %7 = load i32, i32* %5
-  store i32 %7, i32* %0
-  %8 = load i32, i32* %6
-  store i32 %8, i32* %1
-  store i32 123, i32* %2
-
-  ret void
+  return fib(n - 1) + fib(n - 2)
 }
 ```
 
-### Bad news
+`cargo run -- test.rj --emit-ast-graph | dot -Tsvg > images/fib-ast.svg`:
 
-Currently it only support function definitions and variable declarations, returns, and
-constant assignments, so good luck writing the next hottest tinder clone in this
-(almost) turing complete language.
+![AST from fib function](./images/fib-ast.svg)
+
+### Parser (src/parser)
+
+Takes in a file and parses it into an AST.
+
+### Resolver (src/resolver)
+
+**Not implemented** Walks through the AST and resolves the identifiers and imports.
+
+### Typer (src/typer)
+
+**Not implemented** Resolves and checks types.
+
+### RJ IR Generator (src/ir_gen)
+
+**Not implemented** Translates the AST into RJ IR.
+
+### Optimiser (src/optimiser)
+
+**Not implemented** Performs language specific optimisations on the RJ IR.
+
+### LLVM Generator (src/llvm_gen)
+
+**Not implemented** Translates the RJ IR into LLVM IR
