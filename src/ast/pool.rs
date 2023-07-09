@@ -119,6 +119,7 @@ pub enum Node {
     Statement(statement::Statement),
     Return(statement::Return),
     Assignment(statement::Assignment),
+    If(statement::If),
 
     ExpressionList(expression::ExpressionList),
     Expression(expression::Expression),
@@ -137,6 +138,7 @@ impl Node {
             Node::Statement(node) => node,
             Node::Return(node) => node,
             Node::Assignment(node) => node,
+            Node::If(node) => node,
 
             Node::ExpressionList(node) => node,
             Node::Expression(node) => node,
@@ -188,6 +190,7 @@ impl_pool_type!(Node::Ident, Ident);
 impl_pool_type!(Node::Statement, statement::Statement);
 impl_pool_type!(Node::Return, statement::Return);
 impl_pool_type!(Node::Assignment, statement::Assignment);
+impl_pool_type!(Node::If, statement::If);
 
 impl_pool_type!(Node::Expression, expression::Expression);
 impl_pool_type!(Node::ExpressionList, expression::ExpressionList);
