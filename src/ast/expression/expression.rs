@@ -10,6 +10,7 @@ pub enum Expression {
     Literal((ast::PoolRef<Literal>, usize)),
     Ident((ast::PoolRef<ast::Ident>, usize)),
     Cmp((ast::PoolRef<ast::expression::Cmp>, usize)),
+    Sum((ast::PoolRef<ast::expression::Sum>, usize)),
 }
 
 impl Dot for Expression {
@@ -18,6 +19,7 @@ impl Dot for Expression {
             Expression::Literal((node, id)) => (node.dot(output)?, *id),
             Expression::Ident((node, id)) => (node.dot(output)?, *id),
             Expression::Cmp((node, id)) => (node.dot(output)?, *id),
+            Expression::Sum((node, id)) => (node.dot(output)?, *id),
         };
 
         let mut label = String::new();

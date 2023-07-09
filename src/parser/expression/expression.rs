@@ -22,6 +22,9 @@ impl parser::ASTParser for ast::expression::Expression {
             parser::Rule::cmp => ast::expression::Expression::Cmp(
                 (ast::expression::Cmp::parse(pool, pair), pool.len())
             ),
+            parser::Rule::sum => ast::expression::Expression::Sum(
+                (ast::expression::Sum::parse(pool, pair), pool.len())
+            ),
 
             _ => unexpected_pair!(pair),
         };
