@@ -1,7 +1,7 @@
 use crate::ast;
 use crate::parser;
 
-impl parser::ASTParser for ast::expression::List {
+impl parser::ASTParser for ast::expression::ExpressionList {
     fn parse(pool: &mut ast::Pool, pair: pest::iterators::Pair<parser::Rule>) -> ast::PoolRef<Self>
     where
         Self: ast::PoolType,
@@ -19,7 +19,7 @@ impl parser::ASTParser for ast::expression::List {
             }
         }
 
-        let expression_list = ast::expression::List {
+        let expression_list = ast::expression::ExpressionList {
             symbol,
             list: expressions,
         };

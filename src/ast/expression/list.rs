@@ -2,8 +2,10 @@
 use super::*;
 use crate::ast;
 
-#[derive(Debug)]
-pub struct List {
+#[derive(Debug, Dot)]
+pub struct ExpressionList {
+    #[Display]
     pub symbol: ast::Symbol,
+    #[Graph]
     pub list: Vec<ast::PoolRef<Expression>>,
 }

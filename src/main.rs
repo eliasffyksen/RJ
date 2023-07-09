@@ -7,6 +7,10 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
+extern crate dot;
+#[macro_use]
+extern crate dot_derive;
+
 mod ast;
 mod config;
 mod parser;
@@ -20,7 +24,11 @@ fn main() -> io::Result<()> {
         println!("{:#?}", pool);
     }
 
-    // let mut out = std::io::stdout();
+    let mut out = std::io::stdout();
+
+    if config.emit_ast_graph {
+        pool.graph(&mut out);
+    }
 
     // let mut context: ast::IRContext = Default::default();
 

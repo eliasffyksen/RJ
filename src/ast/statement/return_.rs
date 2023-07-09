@@ -1,7 +1,9 @@
 use crate::ast;
 
-#[derive(Debug)]
+#[derive(Debug, Dot)]
 pub struct Return {
+    #[Display]
     pub symbol: ast::Symbol,
-    pub expressions: ast::PoolRef<ast::expression::List>,
+    #[Graph]
+    pub expressions: ast::PoolRef<ast::expression::ExpressionList>,
 }

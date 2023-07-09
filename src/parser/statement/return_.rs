@@ -13,7 +13,7 @@ impl parser::ASTParser for ast::statement::Return {
 
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                parser::Rule::expr_list => expression_list = Some(ast::expression::List::parse(pool, pair)),
+                parser::Rule::expr_list => expression_list = Some(ast::expression::ExpressionList::parse(pool, pair)),
 
                 _ => unexpected_pair!(pair),
             }

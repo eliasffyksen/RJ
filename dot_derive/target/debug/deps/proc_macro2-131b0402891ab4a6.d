@@ -1,0 +1,12 @@
+/home/elias/projects/rjc/dot_derive/target/debug/deps/proc_macro2-131b0402891ab4a6.rmeta: /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/lib.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/marker.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/parse.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/rcvec.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/detection.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/fallback.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/extra.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/wrapper.rs
+
+/home/elias/projects/rjc/dot_derive/target/debug/deps/proc_macro2-131b0402891ab4a6.d: /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/lib.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/marker.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/parse.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/rcvec.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/detection.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/fallback.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/extra.rs /home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/wrapper.rs
+
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/lib.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/marker.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/parse.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/rcvec.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/detection.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/fallback.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/extra.rs:
+/home/elias/.cargo/registry/src/github.com-1ecc6299db9ec823/proc-macro2-1.0.64/src/wrapper.rs:

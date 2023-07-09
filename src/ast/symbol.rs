@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::parser;
 
 #[derive(Debug)]
@@ -6,6 +8,13 @@ pub struct Symbol {
     column: usize,
     start: usize,
     end: usize,
+}
+
+impl Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.column)?;
+        Ok(())
+    }
 }
 
 impl Symbol {
