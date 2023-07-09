@@ -110,31 +110,37 @@ impl Pool {
 
 #[derive(Debug)]
 pub enum Node {
+    Module(Module),
     Function(Function),
     Variable(Variable),
     Block(Block),
     Ident(Ident),
+
     Statement(statement::Statement),
     Return(statement::Return),
-    Module(Module),
+    Assignment(statement::Assignment),
+
     ExpressionList(expression::ExpressionList),
     Expression(expression::Expression),
-    Constant(expression::Literal),
+    Literal(expression::Literal),
 }
 
 impl Node {
     fn dot(&self, output: &mut dyn io::Write) -> io::Result<()> {
         let node: &dyn Dot = match self {
+            Node::Module(node) => node,
             Node::Function(node) => node,
-            Node::Variable(node) => node,
             Node::Block(node) => node,
+            Node::Variable(node) => node,
             Node::Ident(node) => node,
+
             Node::Statement(node) => node,
             Node::Return(node) => node,
-            Node::Module(node) => node,
+            Node::Assignment(node) => node,
+
             Node::ExpressionList(node) => node,
             Node::Expression(node) => node,
-            Node::Constant(node) => node,
+            Node::Literal(node) => node,
         };
 
         node.dot(output)?;
@@ -173,13 +179,16 @@ macro_rules! impl_pool_type {
     };
 }
 
+impl_pool_type!(Node::Module, Module);
 impl_pool_type!(Node::Function, Function);
-impl_pool_type!(Node::Variable, Variable);
 impl_pool_type!(Node::Block, Block);
+impl_pool_type!(Node::Variable, Variable);
 impl_pool_type!(Node::Ident, Ident);
+
 impl_pool_type!(Node::Statement, statement::Statement);
 impl_pool_type!(Node::Return, statement::Return);
-impl_pool_type!(Node::Module, Module);
-impl_pool_type!(Node::Constant, expression::Literal);
+impl_pool_type!(Node::Assignment, statement::Assignment);
+
 impl_pool_type!(Node::Expression, expression::Expression);
 impl_pool_type!(Node::ExpressionList, expression::ExpressionList);
+impl_pool_type!(Node::Literal, expression::Literal);

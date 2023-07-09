@@ -17,6 +17,9 @@ impl parser::ASTParser for ast::statement::Statement {
             parser::Rule::func_ret => ast::statement::Statement::Return(
                 (ast::statement::Return::parse(pool, pair), pool.len())
             ),
+            parser::Rule::assign => ast::statement::Statement::Assignment(
+                (ast::statement::Assignment::parse(pool, pair), pool.len()),
+            ),
 
             _ => unexpected_pair!(pair),
         };

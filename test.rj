@@ -1,8 +1,10 @@
 
 
-fn add(input_a: i32, input_b: i32): i32, i32 {
+fn swap(input_a: i32, input_b: i32): i32, i32 {
   var_a: i32
   var_b: i32
+
+  var_a, var_b = input_b, input_a
 
   return var_a, var_b
 }
