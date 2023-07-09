@@ -1,11 +1,20 @@
-use std::{io, fmt::Write};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+use std::{io, fmt::Write, hash::Hash};
 
 pub trait Dot {
-    fn dot(&self, output: &mut dyn io::Write, label: &str) -> io::Result<()>;
+    fn dot(&self, output: &mut dyn io::Write) -> io::Result<String>;
 }
 
-impl<T: Dot> Dot for Vec<T> {
-    fn dot(&self, output: &mut dyn io::Write, label: &str) -> io::Result<()> {
+pub trait DotLabel {
+    fn dot_label(&self) -> String;
+}
+
+impl<T: Dot + Hash> Dot for Vec<T> {
+    fn dot(&self, output: &mut dyn io::Write) -> io::Result<String> {
+        let mut label = String::new();
+
+        write!(label, "vec_{}", calculate_hash(self)).unwrap();
         write!(output, "{} [ shape = record, label = \"", label)?;
 
         for (i, _) in self.iter().enumerate() {
@@ -18,13 +27,18 @@ impl<T: Dot> Dot for Vec<T> {
 
         writeln!(output, "\"];")?;
 
-        for (i, item) in self.iter().enumerate() {
-            let mut new_label = String::new();
-            write!(new_label, "{}:{}", label, i).unwrap();
+        for item in self.iter() {
+            let to_label = item.dot(output)?;
 
-            item.dot(output, &new_label)?;
+            writeln!(output, "{} -> {};", label, to_label)?;
         }
 
-        Ok(())
+        Ok(label)
     }
+}
+
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
 }

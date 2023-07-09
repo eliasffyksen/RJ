@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::parser;
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct Symbol {
     line: usize,
     column: usize,

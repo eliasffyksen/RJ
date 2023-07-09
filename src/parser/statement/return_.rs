@@ -20,6 +20,7 @@ impl parser::ASTParser for ast::statement::Return {
         }
 
         let return_ = ast::statement::Return{
+            id: pool.len(),
             symbol,
             expressions: expression_list.expect("no expression list in return statement"),
         };

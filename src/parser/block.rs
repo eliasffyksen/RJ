@@ -16,6 +16,7 @@ impl ASTParser for ast::Block {
         }
 
         let block = ast::Block {
+            id: pool.len(),
             symbol: symbol,
             statements,
         };

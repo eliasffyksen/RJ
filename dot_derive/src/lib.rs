@@ -4,7 +4,7 @@
 use quote::{quote};
 use syn::{parse_macro_input, DeriveInput, Data};
 
-#[proc_macro_derive(Dot, attributes(Display, Graph))]
+#[proc_macro_derive(Dot, attributes(display, graph))]
 pub fn derive_dot(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -22,26 +22,22 @@ pub fn derive_dot(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 };
 
                 if let Some(path) = attr.meta.path().get_ident() {
-                    if path == "Display" {
+                    if path == "display" {
                         field_impl.push(quote!{
                             write!(output, "|{}: {}", stringify!(#name), self.#name)?;
                         });
                     }
 
-                    if path == "Graph" {
+                    if path == "graph" {
                         field_impl.push(quote!{
                             write!(output, "|<{}> {}", stringify!(#name), stringify!(#name))?;
                         });
 
                         graph_impl.push(quote!(
                             {
-                                let mut entry_label = String::new();
+                                let to_label = self.#name.dot(output)?;
 
-                                entry_label += label;
-                                entry_label += ":";
-                                entry_label += stringify!(#name);
-
-                                self.#name.dot(output, &entry_label)?;
+                                writeln!(output, "{}:{} -> {};", label, stringify!(#name), to_label)?;
                             }
                         ));
                     }
@@ -54,8 +50,12 @@ pub fn derive_dot(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let expanded = quote! {
         impl dot::Dot for #name
+        where
+            #name: dot::DotLabel
         {
-            fn dot(&self, output: &mut dyn std::io::Write, label: &str) -> std::io::Result<()> {
+            fn dot(&self, output: &mut dyn std::io::Write) -> std::io::Result<String> {
+                let label = self.dot_label();
+
                 write!(output, "{} [ shape = record, label = \"{}", label, stringify!(#name))?;
 
                 #( #field_impl )*
@@ -64,7 +64,7 @@ pub fn derive_dot(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 #( #graph_impl )*
 
-                Ok(())
+                Ok(label)
             }
         }
     };

@@ -26,11 +26,12 @@ impl ASTParser for ast::Function {
         }
 
         let function = ast::Function {
+            id: pool.len(),
             symbol,
             name: name.expect("no name defined for function"),
             args,
             block: block.expect("no block defined"),
-            return_type,
+            return_type: ast::TypeList { list: return_type },
         };
 
         pool.add(function)

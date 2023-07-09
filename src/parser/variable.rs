@@ -23,6 +23,7 @@ impl ASTParser for ast::Variable {
         }
 
         let variable = ast::Variable {
+            id: pool.len(),
             symbol,
             name: name.expect("no name for variable"),
             type_: _type.expect("no type for variable"),

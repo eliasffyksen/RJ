@@ -10,6 +10,7 @@ impl parser::ASTParser for ast::expression::Literal {
 
         let symbol = ast::Symbol::from_pair(&pair);
         let literal = ast::expression::Literal{
+            id: pool.len(),
             symbol,
             value: pair.as_str().to_string(),
         };

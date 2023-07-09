@@ -11,9 +11,10 @@ impl parser::ASTParser for ast::expression::Expression {
         pair = pair.into_inner().next().expect("no pair in expression");
         let pair = unpred(pair);
 
+
         let expression = match pair.as_rule() {
-            parser::Rule::literal => ast::expression::Expression::Constant(
-                    ast::expression::Literal::parse(pool, pair)
+            parser::Rule::literal => ast::expression::Expression::Literal(
+                (ast::expression::Literal::parse(pool, pair), pool.len())
             ),
 
             _ => unexpected_pair!(pair),

@@ -20,6 +20,7 @@ impl parser::ASTParser for ast::expression::ExpressionList {
         }
 
         let expression_list = ast::expression::ExpressionList {
+            id: pool.len(),
             symbol,
             list: expressions,
         };

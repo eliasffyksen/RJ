@@ -43,6 +43,9 @@ impl ASTParser for ast::Module {
             }
         }
 
-        pool.add(Self { functions })
+        pool.add(Self {
+            id: pool.len(),
+            functions,
+        })
     }
 }

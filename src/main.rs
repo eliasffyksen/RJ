@@ -27,7 +27,7 @@ fn main() -> io::Result<()> {
     let mut out = std::io::stdout();
 
     if config.emit_ast_graph {
-        pool.graph(&mut out);
+        pool.graph(&mut out)?;
     }
 
     // let mut context: ast::IRContext = Default::default();
