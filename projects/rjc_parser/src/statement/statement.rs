@@ -2,15 +2,15 @@ use pest::iterators::Pair;
 
 use rjc_ast::{
     statement::{Assignment, If, Return, Statement},
-    Call, Pool, PoolRef, PoolType, Variable,
+    Call, AST, ASTRef, ASTType, Variable,
 };
 
 use crate::{ASTParser, Rule};
 
 impl ASTParser for Statement {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType,
+        Self: ASTType,
     {
         assert!(pair.as_rule() == Rule::stmt);
 

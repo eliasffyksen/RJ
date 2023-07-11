@@ -1,14 +1,14 @@
 use std::{io, fs};
 
 use pest::{iterators::Pair, Parser as _};
-use rjc_ast::{Pool, PoolRef, PoolType, Function, Module};
+use rjc_ast::{AST, ASTRef, ASTType, Function, Module};
 
 use crate::{Rule, ASTParser, Parser};
 
-pub fn from_file(path: String) -> io::Result<Pool> {
+pub fn from_file(path: String) -> io::Result<AST> {
     let input = fs::read_to_string(&path)?;
 
-    let mut pool = Pool::new(path, input.clone());
+    let mut pool = AST::new(path, input.clone());
 
     let pair = Parser::parse(Rule::module, input.as_str())
         .unwrap()
@@ -21,9 +21,9 @@ pub fn from_file(path: String) -> io::Result<Pool> {
 }
 
 impl ASTParser for Module {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType + Sized,
+        Self: ASTType + Sized,
     {
         let inner = match pair.as_rule() {
             Rule::module => pair.into_inner(),

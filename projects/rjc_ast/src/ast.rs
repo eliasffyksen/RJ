@@ -32,15 +32,15 @@ impl_nodes! {
 
 
 #[derive(Debug, Hash)]
-pub struct PoolRef<T>
+pub struct ASTRef<T>
 where
-    T: PoolType,
+    T: ASTType,
 {
     pool_id: usize,
     _type: PhantomData<T>,
 }
 
-impl<T: PoolType> Dot for PoolRef<T> {
+impl<T: ASTType> Dot for ASTRef<T> {
     fn dot(&self, _: &mut dyn io::Write) -> io::Result<String> {
         let mut label = String::new();
         write!(label, "ast_node_{}", self.pool_id).unwrap();
@@ -49,7 +49,7 @@ impl<T: PoolType> Dot for PoolRef<T> {
     }
 }
 
-impl<T: PoolType> Clone for PoolRef<T> {
+impl<T: ASTType> Clone for ASTRef<T> {
     fn clone(&self) -> Self {
         Self {
             pool_id: self.pool_id,
@@ -58,17 +58,17 @@ impl<T: PoolType> Clone for PoolRef<T> {
     }
 }
 
-impl<T: PoolType> Copy for PoolRef<T> {}
+impl<T: ASTType> Copy for ASTRef<T> {}
 
-pub trait PoolType: Debug + Sized + Hash {
-    fn get(pool: &Pool, pool_ref: PoolRef<Self>) -> &Self;
+pub trait ASTType: Debug + Sized + Hash {
+    fn get(pool: &AST, pool_ref: ASTRef<Self>) -> &Self;
 
-    fn get_mut(pool: &mut Pool, pool_ref: PoolRef<Self>) -> &mut Self;
+    fn get_mut(pool: &mut AST, pool_ref: ASTRef<Self>) -> &mut Self;
 
     fn to_node(pool_ref: Self) -> Node;
 
-    fn pool_ref(pool_id: usize) -> PoolRef<Self> {
-        PoolRef {
+    fn pool_ref(pool_id: usize) -> ASTRef<Self> {
+        ASTRef {
             pool_id,
             _type: PhantomData {},
         }
@@ -76,15 +76,15 @@ pub trait PoolType: Debug + Sized + Hash {
 }
 
 #[derive(Debug)]
-pub struct Pool {
+pub struct AST {
     pub path: String,
     pub input: String,
     data: Vec<Node>,
 }
 
-impl Pool {
-    pub fn new(path: String, input: String) -> Pool {
-        Pool {
+impl AST {
+    pub fn new(path: String, input: String) -> AST {
+        AST {
             path,
             input,
             data: Vec::new(),
@@ -107,25 +107,25 @@ impl Pool {
         Ok(())
     }
 
-    pub fn add<T>(&mut self, node: T) -> PoolRef<T>
+    pub fn add<T>(&mut self, node: T) -> ASTRef<T>
     where
-        T: PoolType + Debug,
+        T: ASTType + Debug,
     {
         self.data.push(T::to_node(node));
 
         T::pool_ref(self.data.len() - 1)
     }
 
-    pub fn get<T>(&self, pool_ref: PoolRef<T>) -> &T
+    pub fn get<T>(&self, pool_ref: ASTRef<T>) -> &T
     where
-        T: PoolType + Sized,
+        T: ASTType + Sized,
     {
         T::get(self, pool_ref)
     }
 
-    pub fn get_mut<T>(&mut self, pool_ref: PoolRef<T>) -> &mut T
+    pub fn get_mut<T>(&mut self, pool_ref: ASTRef<T>) -> &mut T
     where
-        T: PoolType + Sized,
+        T: ASTType + Sized,
     {
         T::get_mut(self, pool_ref)
     }

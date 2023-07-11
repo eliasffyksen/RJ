@@ -2,15 +2,15 @@ use std::fmt::Write as _;
 
 use dot::DotLabel;
 
-use crate::{expression::ExpressionList, Ident, PoolRef};
+use crate::{expression::ExpressionList, Ident, ASTRef};
 
 #[derive(Debug, Dot, Hash)]
 pub struct Assignment {
     pub id: usize,
     #[dot_edge]
-    pub targets: Vec<PoolRef<Ident>>,
+    pub targets: Vec<ASTRef<Ident>>,
     #[dot_edge]
-    pub expressions: PoolRef<ExpressionList>,
+    pub expressions: ASTRef<ExpressionList>,
 }
 
 impl DotLabel for Assignment {

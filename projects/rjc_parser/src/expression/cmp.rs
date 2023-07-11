@@ -2,7 +2,7 @@ use pest::iterators::Pair;
 
 use rjc_ast::{
     expression::{Cmp, CmpOp, Expression},
-    Pool, PoolRef, PoolType,
+    AST, ASTRef, ASTType,
 };
 
 use crate::{ASTParser, Rule};
@@ -21,9 +21,9 @@ fn cmp_op_from_pair(pair: Pair<Rule>) -> CmpOp {
 }
 
 impl ASTParser for Cmp {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType,
+        Self: ASTType,
     {
         assert!(pair.as_rule() == Rule::cmp);
 

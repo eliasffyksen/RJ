@@ -13,7 +13,7 @@ The AST is written as an acyclic graph. You can view any AST by running:
 ```sh
 cargo run -- <FILE> --emit-ast
 ```
-However, due to the memory structure making heavy use of `PoolRef`s (referenced by indexes in the AST pool)
+However, due to the memory structure making heavy use of `ASTRef`s (referenced by indexes in the AST pool)
 it is very hard to reason about.
 
 To output a graph in dot language you can run:

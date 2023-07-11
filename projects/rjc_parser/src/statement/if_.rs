@@ -1,13 +1,13 @@
 use pest::iterators::Pair;
 
-use rjc_ast::{expression::Expression, statement::If, Block, Pool, PoolRef, PoolType};
+use rjc_ast::{expression::Expression, statement::If, Block, AST, ASTRef, ASTType};
 
 use crate::{ASTParser, Rule};
 
 impl ASTParser for If {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType,
+        Self: ASTType,
     {
         assert!(pair.as_rule() == Rule::if_stmt);
 

@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use dot::DotLabel;
 
-use crate::{statement::Statement, PoolRef, Symbol};
+use crate::{statement::Statement, ASTRef, Symbol};
 
 #[derive(Debug, Dot, Hash)]
 pub struct Block {
@@ -10,7 +10,7 @@ pub struct Block {
     #[dot_display]
     pub symbol: Symbol,
     #[dot_edge]
-    pub statements: Vec<PoolRef<Statement>>,
+    pub statements: Vec<ASTRef<Statement>>,
 }
 
 impl DotLabel for Block {

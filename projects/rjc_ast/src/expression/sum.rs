@@ -7,7 +7,7 @@ use std::{
 
 use dot::{Dot, DotLabel};
 
-use crate::PoolRef;
+use crate::ASTRef;
 
 use super::Expression;
 
@@ -15,15 +15,15 @@ use super::Expression;
 pub struct Sum {
     pub id: usize,
     #[dot_edge]
-    pub first: PoolRef<Expression>,
+    pub first: ASTRef<Expression>,
     #[dot_edge]
     pub rest: Vec<SumOp>,
 }
 
 #[derive(Debug, Hash)]
 pub enum SumOp {
-    Add(PoolRef<Expression>),
-    Sub(PoolRef<Expression>),
+    Add(ASTRef<Expression>),
+    Sub(ASTRef<Expression>),
 }
 
 impl Dot for SumOp {

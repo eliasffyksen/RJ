@@ -10,7 +10,7 @@ pub struct Variable {
     #[dot_display]
     pub symbol: Symbol,
     #[dot_edge]
-    pub name: PoolRef<Ident>,
+    pub name: ASTRef<Ident>,
     pub type_: Type,
 }
 

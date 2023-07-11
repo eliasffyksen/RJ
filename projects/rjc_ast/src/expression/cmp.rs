@@ -2,7 +2,7 @@ use std::fmt::{self, Display, Write as _};
 
 use dot::DotLabel;
 
-use crate::{expression::Expression, PoolRef};
+use crate::{expression::Expression, ASTRef};
 
 #[derive(Debug, Hash, Dot)]
 pub struct Cmp {
@@ -10,9 +10,9 @@ pub struct Cmp {
     #[dot_display]
     pub op: CmpOp,
     #[dot_edge]
-    pub left: PoolRef<Expression>,
+    pub left: ASTRef<Expression>,
     #[dot_edge]
-    pub right: PoolRef<Expression>,
+    pub right: ASTRef<Expression>,
 }
 
 #[derive(Debug, Hash)]

@@ -25,12 +25,12 @@ mod symbol;
 mod variable;
 
 pub use module::from_file;
-use rjc_ast::{Pool, PoolRef, PoolType};
+use rjc_ast::{AST, ASTRef, ASTType};
 
 pub use symbol::SymbolFromPair;
 
 trait ASTParser {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType;
+        Self: ASTType;
 }

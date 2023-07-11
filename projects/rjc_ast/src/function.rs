@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 
 use dot::DotLabel;
 
-use crate::{Block, Ident, PoolRef, Symbol, TypeList, Variable};
+use crate::{Block, Ident, ASTRef, Symbol, TypeList, Variable};
 
 #[derive(Debug, Dot, Hash)]
 pub struct Function {
@@ -10,11 +10,11 @@ pub struct Function {
     #[dot_display]
     pub symbol: Symbol,
     #[dot_edge]
-    pub ident: PoolRef<Ident>,
+    pub ident: ASTRef<Ident>,
     #[dot_edge]
-    pub args: Vec<PoolRef<Variable>>,
+    pub args: Vec<ASTRef<Variable>>,
     #[dot_edge]
-    pub block: PoolRef<Block>,
+    pub block: ASTRef<Block>,
     #[dot_display]
     pub return_type: TypeList,
 }

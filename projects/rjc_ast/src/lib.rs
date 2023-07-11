@@ -2,12 +2,12 @@
 extern crate dot_derive;
 
 #[macro_use]
-mod pool_macros;
+mod ast_macros;
 
 mod block;
 mod function;
 mod module;
-mod pool;
+mod ast;
 mod symbol;
 mod types;
 mod variable;
@@ -17,7 +17,7 @@ mod call;
 pub use block::*;
 pub use function::*;
 pub use module::*;
-pub use pool::*;
+pub use ast::*;
 pub use symbol::*;
 pub use types::*;
 pub use variable::*;

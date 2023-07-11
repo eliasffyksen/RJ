@@ -2,17 +2,17 @@ use std::fmt::Write as _;
 
 use dot::Dot;
 
-use crate::{PoolRef, Variable, Call};
+use crate::{ASTRef, Variable, Call};
 
 use super::{Assignment, If, Return};
 
 #[derive(Debug, Hash)]
 pub enum Statement {
-    VariableDeclaration((PoolRef<Variable>, usize)),
-    Call((PoolRef<Call>, usize)),
-    Assignment((PoolRef<Assignment>, usize)),
-    If((PoolRef<If>, usize)),
-    Return((PoolRef<Return>, usize)),
+    VariableDeclaration((ASTRef<Variable>, usize)),
+    Call((ASTRef<Call>, usize)),
+    Assignment((ASTRef<Assignment>, usize)),
+    If((ASTRef<If>, usize)),
+    Return((ASTRef<Return>, usize)),
 }
 
 impl Dot for Statement {

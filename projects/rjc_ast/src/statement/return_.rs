@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use dot::DotLabel;
 
-use crate::{Symbol, PoolRef, expression::ExpressionList};
+use crate::{Symbol, ASTRef, expression::ExpressionList};
 
 #[derive(Debug, Dot, Hash)]
 pub struct Return {
@@ -10,7 +10,7 @@ pub struct Return {
     #[dot_display]
     pub symbol: Symbol,
     #[dot_edge]
-    pub expressions: PoolRef<ExpressionList>,
+    pub expressions: ASTRef<ExpressionList>,
 }
 
 impl DotLabel for Return {

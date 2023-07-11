@@ -2,15 +2,15 @@ use pest::iterators::Pair;
 
 use rjc_ast::{
     expression::{Expression, ExpressionList},
-    Pool, PoolRef, PoolType, Symbol,
+    AST, ASTRef, ASTType, Symbol,
 };
 
 use crate::{ASTParser, Rule, SymbolFromPair};
 
 impl ASTParser for ExpressionList {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType,
+        Self: ASTType,
     {
         assert!(pair.as_rule() == Rule::expr_list);
 

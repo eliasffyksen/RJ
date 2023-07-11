@@ -4,15 +4,15 @@ use dot::DotLabel;
 
 use crate::expression::ExpressionList;
 
-use super::{Ident, PoolRef};
+use super::{Ident, ASTRef};
 
 #[derive(Debug, Hash, Dot)]
 pub struct Call {
     pub id: usize,
     #[dot_edge]
-    pub ident: PoolRef<Ident>,
+    pub ident: ASTRef<Ident>,
     #[dot_edge]
-    pub expressions: PoolRef<ExpressionList>,
+    pub expressions: ASTRef<ExpressionList>,
 }
 
 impl DotLabel for Call {

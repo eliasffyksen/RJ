@@ -2,13 +2,13 @@ use std::fmt::Write as _;
 
 use dot::DotLabel;
 
-use crate::{Function, PoolRef};
+use crate::{Function, ASTRef};
 
 #[derive(Debug, Dot, Hash)]
 pub struct Module {
     pub id: usize,
     #[dot_edge]
-    pub functions: Vec<PoolRef<Function>>,
+    pub functions: Vec<ASTRef<Function>>,
 }
 
 impl DotLabel for Module {

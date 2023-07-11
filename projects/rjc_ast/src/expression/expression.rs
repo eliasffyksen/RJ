@@ -2,17 +2,17 @@ use std::fmt::Write as _;
 
 use dot::Dot;
 
-use crate::{Call, Ident, PoolRef};
+use crate::{Call, Ident, ASTRef};
 
 use super::{Cmp, Literal, Sum};
 
 #[derive(Debug, Hash)]
 pub enum Expression {
-    Literal((PoolRef<Literal>, usize)),
-    Ident((PoolRef<Ident>, usize)),
-    Call((PoolRef<Call>, usize)),
-    Cmp((PoolRef<Cmp>, usize)),
-    Sum((PoolRef<Sum>, usize)),
+    Literal((ASTRef<Literal>, usize)),
+    Ident((ASTRef<Ident>, usize)),
+    Call((ASTRef<Call>, usize)),
+    Cmp((ASTRef<Cmp>, usize)),
+    Sum((ASTRef<Sum>, usize)),
 }
 
 impl Dot for Expression {

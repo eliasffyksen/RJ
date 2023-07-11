@@ -2,15 +2,15 @@ use std::fmt::Write as _;
 
 use dot::DotLabel;
 
-use crate::{expression::Expression, Block, PoolRef};
+use crate::{expression::Expression, Block, ASTRef};
 
 #[derive(Debug, Dot, Hash)]
 pub struct If {
     pub id: usize,
     #[dot_edge]
-    pub condition: PoolRef<Expression>,
+    pub condition: ASTRef<Expression>,
     #[dot_edge]
-    pub if_block: PoolRef<Block>,
+    pub if_block: ASTRef<Block>,
 }
 
 impl DotLabel for If {

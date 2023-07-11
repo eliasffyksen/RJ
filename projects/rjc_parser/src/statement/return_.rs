@@ -1,13 +1,13 @@
 use pest::iterators::Pair;
 
-use rjc_ast::{expression::ExpressionList, statement::Return, Pool, PoolRef, PoolType, Symbol};
+use rjc_ast::{expression::ExpressionList, statement::Return, AST, ASTRef, ASTType, Symbol};
 
 use crate::{ASTParser, Rule, SymbolFromPair};
 
 impl ASTParser for Return {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType,
+        Self: ASTType,
     {
         assert!(pair.as_rule() == Rule::func_ret);
 

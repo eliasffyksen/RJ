@@ -2,15 +2,15 @@ use pest::iterators::Pair;
 
 use rjc_ast::{
     expression::{Expression, Sum, SumOp},
-    Pool, PoolRef, PoolType,
+    AST, ASTRef, ASTType,
 };
 
 use crate::{ASTParser, Rule};
 
 impl ASTParser for Sum {
-    fn parse(pool: &mut Pool, pair: Pair<Rule>) -> PoolRef<Self>
+    fn parse(pool: &mut AST, pair: Pair<Rule>) -> ASTRef<Self>
     where
-        Self: PoolType,
+        Self: ASTType,
     {
         assert!(pair.as_rule() == Rule::sum);
 

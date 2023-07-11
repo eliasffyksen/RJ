@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use dot::DotLabel;
 
-use crate::{PoolRef, Symbol};
+use crate::{ASTRef, Symbol};
 
 use super::Expression;
 
@@ -12,7 +12,7 @@ pub struct ExpressionList {
     #[dot_display]
     pub symbol: Symbol,
     #[dot_edge]
-    pub list: Vec<PoolRef<Expression>>,
+    pub list: Vec<ASTRef<Expression>>,
 }
 
 impl DotLabel for ExpressionList {

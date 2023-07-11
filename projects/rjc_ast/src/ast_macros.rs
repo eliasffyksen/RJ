@@ -1,7 +1,7 @@
 macro_rules! impl_pool_type {
     ($enum:ident => $type:path) => {
-        impl PoolType for $enum {
-            fn get(pool: &Pool, pool_ref: PoolRef<Self>) -> &Self {
+        impl ASTType for $enum {
+            fn get(pool: &AST, pool_ref: ASTRef<Self>) -> &Self {
                 let data = &pool.data[pool_ref.pool_id];
 
                 match data {
@@ -11,7 +11,7 @@ macro_rules! impl_pool_type {
                 }
             }
 
-            fn get_mut(pool: &mut Pool, pool_ref: PoolRef<Self>) -> &mut Self {
+            fn get_mut(pool: &mut AST, pool_ref: ASTRef<Self>) -> &mut Self {
                 let data = &mut pool.data[pool_ref.pool_id];
 
                 match data {
