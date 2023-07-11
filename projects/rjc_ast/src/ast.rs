@@ -30,7 +30,6 @@ impl_nodes! {
     Sum => Sum
 }
 
-
 #[derive(Debug, Hash)]
 pub struct ASTRef<T>
 where
@@ -65,7 +64,7 @@ pub trait ASTType: Debug + Sized + Hash {
 
     fn get_mut(pool: &mut AST, pool_ref: ASTRef<Self>) -> &mut Self;
 
-    fn to_node(pool_ref: Self) -> Node;
+    fn to_node(pool_ref: Self) -> ASTNode;
 
     fn pool_ref(pool_id: usize) -> ASTRef<Self> {
         ASTRef {
@@ -79,7 +78,7 @@ pub trait ASTType: Debug + Sized + Hash {
 pub struct AST {
     pub path: String,
     pub input: String,
-    data: Vec<Node>,
+    data: Vec<ASTNode>,
 }
 
 impl AST {

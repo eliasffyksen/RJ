@@ -5,7 +5,7 @@ macro_rules! impl_pool_type {
                 let data = &pool.data[pool_ref.pool_id];
 
                 match data {
-                    Node::$enum(node) => &node,
+                    ASTNode::$enum(node) => &node,
 
                     _ => panic!("tried to get wrong pool node type"),
                 }
@@ -15,14 +15,14 @@ macro_rules! impl_pool_type {
                 let data = &mut pool.data[pool_ref.pool_id];
 
                 match data {
-                    Node::$enum(node) => node,
+                    ASTNode::$enum(node) => node,
 
                     _ => panic!("tried to get wrong pool node type"),
                 }
             }
 
-            fn to_node(pool_ref: Self) -> Node {
-                Node::$enum(pool_ref)
+            fn to_node(pool_ref: Self) -> ASTNode {
+                ASTNode::$enum(pool_ref)
             }
         }
     };
@@ -31,14 +31,14 @@ macro_rules! impl_pool_type {
 macro_rules! impl_nodes {
     {$($name:ident => $type:path),*} => {
         #[derive(Debug)]
-        pub enum Node {
+        pub enum ASTNode {
             $($name($type),)*
         }
 
-        impl Node {
+        impl ASTNode {
             fn dot(&self, output: &mut dyn io::Write) -> io::Result<()> {
                 let node: &dyn Dot = match self {
-                    $( Node::$name(node) => node, )*
+                    $( ASTNode::$name(node) => node, )*
                 };
 
                 node.dot(output)?;
