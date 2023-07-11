@@ -11,6 +11,8 @@ pub struct If {
     pub condition: ASTRef<Expression>,
     #[dot_edge]
     pub if_block: ASTRef<Block>,
+    #[dot_edge]
+    pub else_block: Option<ASTRef<Block>>,
 }
 
 impl DotLabel for If {

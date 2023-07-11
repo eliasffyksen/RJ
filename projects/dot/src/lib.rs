@@ -37,6 +37,31 @@ impl<T: Dot + Hash> Dot for Vec<T> {
     }
 }
 
+impl<T: Dot + Hash> Dot for Option<T> {
+    fn dot(&self, output: &mut dyn io::Write) -> io::Result<String> {
+        let mut label = String::new();
+
+        write!(label, "option_{}", calculate_hash(self)).unwrap();
+
+        let item = match self {
+            Some(item) => item,
+            None => {
+                write!(output, "{} [ shape = circle, label = \"None\"];", label)?;
+
+                return Ok(label);
+            }
+        };
+
+        write!(output, "{} [ shape = circle, label = \"Some\"];", label)?;
+
+        let to_label = item.dot(output)?;
+
+        writeln!(output, "{} -> {};", label, to_label)?;
+
+        Ok(label)
+    }
+}
+
 fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
