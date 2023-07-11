@@ -7,7 +7,7 @@ Fear not, you are not alone!
 RJ to the rescue - *The brand new hipster language no one asked for*
 ## Pipeline
 
-### AST (src/ast)
+### AST (projects/rjc_ast)
 
 The AST is written as an acyclic graph. You can view any AST by running:
 ```sh
@@ -36,11 +36,11 @@ fn fib(n: i32): i32 {
 
 ![AST from fib function](./images/fib-ast.svg)
 
-### Parser (src/parser)
+### Parser (projects/rjc_parser)
 
 Takes in a file and parses it into an AST.
 
-### Resolver (src/resolver)
+### Resolver (projects/rjc_resolver)
 
 **Not implemented** Walks through the AST and resolves the identifiers and imports.
 
@@ -48,14 +48,14 @@ Takes in a file and parses it into an AST.
 
 **Not implemented** Resolves and checks types.
 
-### RJ IR Generator (src/ir_gen)
+### RJ IR Generator (projects/ir_gen)
 
 **Not implemented** Translates the AST into RJ IR.
 
-### Optimiser (src/optimiser)
+### Optimiser (projects/optimiser)
 
 **Not implemented** Performs language specific optimisations on the RJ IR.
 
-### LLVM Generator (src/llvm_gen)
+### LLVM Generator (projects/llvm_gen)
 
 **Not implemented** Translates the RJ IR into LLVM IR

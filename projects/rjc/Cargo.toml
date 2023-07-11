@@ -1,0 +1,14 @@
+[package]
+name = "rjc"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+argparse = "0.2.2"
+dot = { version = "0.1.0", path = "../dot" }
+dot_derive = { version = "0.1.0", path = "../dot_derive" }
+pest = "2.5.5"
+pest_derive = "2.5.5"
+rjc_parser = { version = "0.1.0", path = "../rjc_parser" }
