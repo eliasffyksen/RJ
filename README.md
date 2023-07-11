@@ -44,18 +44,18 @@ Takes in a file and parses it into an AST.
 
 **Not implemented** Walks through the AST and resolves the identifiers and imports.
 
-### Typer (src/typer)
+### Typer (projects/rjc_typer)
 
 **Not implemented** Resolves and checks types.
 
-### RJ IR Generator (projects/ir_gen)
+### RJ IR Generator (projects/rjc_ir_gen)
 
 **Not implemented** Translates the AST into RJ IR.
 
-### Optimiser (projects/optimiser)
+### Optimiser (projects/rjc_optimiser)
 
 **Not implemented** Performs language specific optimisations on the RJ IR.
 
-### LLVM Generator (projects/llvm_gen)
+### LLVM Generator (projects/rjc_llvm_gen)
 
 **Not implemented** Translates the RJ IR into LLVM IR
