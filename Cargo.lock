@@ -181,6 +181,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rjc_resolver"
+version = "0.1.0"
+dependencies = [
+ "rjc_ast",
+ "rjc_parser",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

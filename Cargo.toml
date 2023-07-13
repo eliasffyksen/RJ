@@ -5,4 +5,5 @@ members = [
   "projects/rjc",
   "projects/rjc_ast",
   "projects/rjc_parser",
+  "projects/rjc_resolver",
 ]

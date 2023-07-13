@@ -8,7 +8,7 @@ use crate::{Rule, ASTParser, Parser};
 pub fn from_file(path: String) -> io::Result<AST> {
     let input = fs::read_to_string(&path)?;
 
-    let mut pool = AST::new(path, input.clone());
+    let mut pool = AST::new(path, input.clone(), 0);
 
     let pair = Parser::parse(Rule::module, input.as_str())
         .unwrap()

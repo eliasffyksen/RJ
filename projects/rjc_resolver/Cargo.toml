@@ -1,0 +1,10 @@
+[package]
+name = "rjc_resolver"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rjc_ast = { version = "0.1.0", path = "../rjc_ast" }
+rjc_parser = { version = "0.1.0", path = "../rjc_parser" }

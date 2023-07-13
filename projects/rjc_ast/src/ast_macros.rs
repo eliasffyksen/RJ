@@ -2,7 +2,7 @@ macro_rules! impl_pool_type {
     ($enum:ident => $type:path) => {
         impl ASTType for $enum {
             fn get(pool: &AST, pool_ref: ASTRef<Self>) -> &Self {
-                let data = &pool.data[pool_ref.pool_id];
+                let data = &pool.data[pool_ref.node_id];
 
                 match data {
                     ASTNode::$enum(node) => &node,
@@ -12,7 +12,7 @@ macro_rules! impl_pool_type {
             }
 
             fn get_mut(pool: &mut AST, pool_ref: ASTRef<Self>) -> &mut Self {
-                let data = &mut pool.data[pool_ref.pool_id];
+                let data = &mut pool.data[pool_ref.node_id];
 
                 match data {
                     ASTNode::$enum(node) => node,

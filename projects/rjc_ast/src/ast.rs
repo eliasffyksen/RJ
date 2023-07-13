@@ -35,14 +35,14 @@ pub struct ASTRef<T>
 where
     T: ASTType,
 {
-    pool_id: usize,
+    node_id: usize,
     _type: PhantomData<T>,
 }
 
 impl<T: ASTType> Dot for ASTRef<T> {
     fn dot(&self, _: &mut dyn io::Write) -> io::Result<String> {
         let mut label = String::new();
-        write!(label, "ast_node_{}", self.pool_id).unwrap();
+        write!(label, "ast_node_{}", self.node_id).unwrap();
 
         Ok(label)
     }
@@ -51,7 +51,7 @@ impl<T: ASTType> Dot for ASTRef<T> {
 impl<T: ASTType> Clone for ASTRef<T> {
     fn clone(&self) -> Self {
         Self {
-            pool_id: self.pool_id,
+            node_id: self.node_id,
             _type: self._type,
         }
     }
@@ -68,7 +68,7 @@ pub trait ASTType: Debug + Sized + Hash {
 
     fn pool_ref(pool_id: usize) -> ASTRef<Self> {
         ASTRef {
-            pool_id,
+            node_id: pool_id,
             _type: PhantomData {},
         }
     }
@@ -78,14 +78,16 @@ pub trait ASTType: Debug + Sized + Hash {
 pub struct AST {
     pub path: String,
     pub input: String,
+    pub id: usize,
     data: Vec<ASTNode>,
 }
 
 impl AST {
-    pub fn new(path: String, input: String) -> AST {
+    pub fn new(path: String, input: String, id: usize) -> AST {
         AST {
             path,
             input,
+            id,
             data: Vec::new(),
         }
     }
