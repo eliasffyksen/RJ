@@ -2,6 +2,7 @@
 members = [
   "projects/dot",
   "projects/dot_derive",
+  "projects/hcache",
   "projects/rjc",
   "projects/rjc_ast",
   "projects/rjc_parser",
