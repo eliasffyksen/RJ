@@ -53,9 +53,20 @@ reported, not just the first. To print the result:
 cargo run -- <FILE> --emit-hir
 ```
 
-### RJ IR
+### RJ IR (`src/ir`)
 
-**Not implemented** Lowers the AST into a control-flow graph over local variables.
+Lowers the checked program into a control-flow graph of basic blocks over a flat
+table of locals. Parameters, return values, variables and temporaries are all
+locals, statements only ever write whole locals, and a call reads all its
+arguments before writing its results, so `x = f(x)` becomes `call f(x) -> [x]`.
+
+To print it:
+```sh
+cargo run -- <FILE> --emit-ir
+```
+
+A small interpreter (used by the tests) runs the IR directly, so lowering is
+checked against every program in `test/` without needing LLVM.
 
 ### Optimiser
 

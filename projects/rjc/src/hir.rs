@@ -9,7 +9,7 @@
 //!   in a value list (arguments, assignment right-hand side, `return`), where
 //!   it contributes all of its return values ([`Value::Multi`]).
 
-// Not consumed yet; lowering to the IR will read these.
+// Spans are kept for diagnostics from later passes.
 #![allow(dead_code)]
 
 pub use crate::syntax::ast::{BinOp, Type};

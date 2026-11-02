@@ -4,6 +4,7 @@ mod check;
 mod config;
 mod diagnostic;
 mod hir;
+mod ir;
 mod syntax;
 
 fn main() -> ExitCode {
@@ -48,6 +49,12 @@ fn main() -> ExitCode {
 
     if config.emit_hir {
         println!("{program:#?}");
+    }
+
+    let program = ir::lower(&program);
+
+    if config.emit_ir {
+        print!("{program}");
     }
 
     if config.emit_llvm {

@@ -5,6 +5,7 @@ pub struct Config {
     pub emit_ast: bool,
     pub emit_ast_graph: bool,
     pub emit_hir: bool,
+    pub emit_ir: bool,
     pub emit_llvm: bool,
     pub file_name: String,
 }
@@ -38,6 +39,12 @@ impl Config {
                 &["--emit-hir"],
                 argparse::StoreTrue,
                 "Emit the resolved and type-checked program",
+            );
+
+            ap.refer(&mut config.emit_ir).add_option(
+                &["--emit-ir"],
+                argparse::StoreTrue,
+                "Emit RJ IR",
             );
 
             ap.refer(&mut config.file_name)
