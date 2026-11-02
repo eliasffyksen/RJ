@@ -74,6 +74,23 @@ checked against every program in `test/` without needing LLVM.
 consumed) and turns value copies into in-place updates where the old value is no
 longer needed.
 
-### LLVM Generator
+### LLVM Generator (`src/codegen.rs`)
 
-**Not implemented** Translates the RJ IR into LLVM IR
+Emits textual LLVM IR from the RJ IR. Every function returns `void` and takes one
+pointer per return value followed by its arguments by value; a call passes the
+destination variables' storage as those pointers. Functions are emitted as
+`rj_<name>`.
+
+`stdlib/start.ll` provides `_start`, which calls `main` and exits with its return
+value using the Linux x86-64 `exit_group` syscall, so programs need neither libc
+nor a dynamic linker.
+
+## Testing
+
+```sh
+cargo test   # unit tests, plus every program in test/ through the IR interpreter
+             # and, if llc and ld.lld are installed, compiled to native code
+make test    # compiles each test/*.rj with llc + ld.lld and runs it
+```
+
+Each program in `test/` passes by exiting with 0.

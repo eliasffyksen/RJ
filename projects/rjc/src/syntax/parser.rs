@@ -56,6 +56,14 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::func => "function",
             Rule::expr_list => "expression list",
             Rule::EOI => "end of file",
+            Rule::cmp_eq => "`==`",
+            Rule::cmp_ne => "`!=`",
+            Rule::cmp_lt => "`<`",
+            Rule::cmp_le => "`<=`",
+            Rule::cmp_gt => "`>`",
+            Rule::cmp_ge => "`>=`",
+            Rule::add => "`+`",
+            Rule::sub => "`-`",
             other => return format!("{other:?}"),
         }
         .to_string()

@@ -1,6 +1,7 @@
 use std::{fs, io, process::ExitCode};
 
 mod check;
+mod codegen;
 mod config;
 mod diagnostic;
 mod hir;
@@ -58,8 +59,7 @@ fn main() -> ExitCode {
     }
 
     if config.emit_llvm {
-        eprintln!("error: --emit-llvm is not implemented yet");
-        return ExitCode::FAILURE;
+        print!("{}", codegen::emit(&program, &config.file_name));
     }
 
     ExitCode::SUCCESS
