@@ -1,8 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
-  "projects/dot",
-  "projects/dot_derive",
   "projects/rjc",
-  "projects/rjc_ast",
-  "projects/rjc_parser",
 ]

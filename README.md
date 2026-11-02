@@ -7,14 +7,18 @@ Fear not, you are not alone!
 RJ to the rescue - *The brand new hipster language no one asked for*
 ## Pipeline
 
-### AST (projects/rjc_ast)
+The compiler is a single crate, `projects/rjc`, with one module per stage.
 
-The AST is written as an acyclic graph. You can view any AST by running:
+### Parser and AST (`src/syntax`)
+
+`rj.pest` holds the grammar, `parser.rs` turns pest's parse tree into the AST in
+`ast.rs`. The AST is a plain owned tree where every node carries the byte span it
+was parsed from, so later stages can report errors at the right place.
+
+You can print the AST by running:
 ```sh
 cargo run -- <FILE> --emit-ast
 ```
-However, due to the memory structure making heavy use of `ASTRef`s (referenced by indexes in the AST pool)
-it is very hard to reason about.
 
 To output a graph in dot language you can run:
 ```sh
@@ -36,26 +40,20 @@ fn fib(n: i32): i32 {
 
 ![AST from fib function](./images/fib-ast.svg)
 
-### Parser (projects/rjc_parser)
+### Resolver and type checker
 
-Takes in a file and parses it into an AST.
+**Not implemented** Resolves identifiers and checks types.
 
-### Resolver (projects/rjc_resolver)
+### RJ IR
 
-**Not implemented** Walks through the AST and resolves the identifiers and imports.
+**Not implemented** Lowers the AST into a control-flow graph over local variables.
 
-### Typer (projects/rjc_typer)
+### Optimiser
 
-**Not implemented** Resolves and checks types.
+**Not implemented** Infers how each function uses its parameters (read only, in/out,
+consumed) and turns value copies into in-place updates where the old value is no
+longer needed.
 
-### RJ IR Generator (projects/rjc_ir_gen)
-
-**Not implemented** Translates the AST into RJ IR.
-
-### Optimiser (projects/rjc_optimiser)
-
-**Not implemented** Performs language specific optimisations on the RJ IR.
-
-### LLVM Generator (projects/rjc_llvm_gen)
+### LLVM Generator
 
 **Not implemented** Translates the RJ IR into LLVM IR
