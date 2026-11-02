@@ -1,7 +1,9 @@
 use std::{fs, io, process::ExitCode};
 
+mod check;
 mod config;
 mod diagnostic;
+mod hir;
 mod syntax;
 
 fn main() -> ExitCode {
@@ -32,6 +34,20 @@ fn main() -> ExitCode {
             eprintln!("error: {err}");
             return ExitCode::FAILURE;
         }
+    }
+
+    let program = match check::check(&module) {
+        Ok(program) => program,
+        Err(errors) => {
+            for err in errors {
+                eprint!("{}", err.render(&config.file_name, &source));
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+
+    if config.emit_hir {
+        println!("{program:#?}");
     }
 
     if config.emit_llvm {

@@ -11,8 +11,13 @@ ret_type = {
   var_type
 }
 
+keyword = @{
+  ("fn" | "if" | "else" | "return" | "true" | "false")
+  ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
 ident = @{
-  ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
+  !keyword ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
 }
 
 block = {
@@ -99,7 +104,7 @@ int = @{
   "-"? ~ '0'..'9'+
 }
 
-bool = { "true" | "false" }
+bool = @{ ("true" | "false") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 func_call = {
   ident ~ "(" ~ expr_list ~ ")"

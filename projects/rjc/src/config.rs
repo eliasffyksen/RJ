@@ -4,6 +4,7 @@ use argparse;
 pub struct Config {
     pub emit_ast: bool,
     pub emit_ast_graph: bool,
+    pub emit_hir: bool,
     pub emit_llvm: bool,
     pub file_name: String,
 }
@@ -31,6 +32,12 @@ impl Config {
                 &["--emit-ast-graph"],
                 argparse::StoreTrue,
                 "Emit ast in graphviz form",
+            );
+
+            ap.refer(&mut config.emit_hir).add_option(
+                &["--emit-hir"],
+                argparse::StoreTrue,
+                "Emit the resolved and type-checked program",
             );
 
             ap.refer(&mut config.file_name)

@@ -310,6 +310,20 @@ mod tests {
     }
 
     #[test]
+    fn keywords_are_not_identifiers() {
+        let module = parse("fn f(): bool { return true }").unwrap();
+        let StmtKind::Return(values) = &module.functions[0].body.stmts[0].kind else {
+            panic!("expected return");
+        };
+        assert!(matches!(values[0].kind, ExprKind::Bool(true)));
+
+        let module = parse("fn f(trueish: bool): bool { return trueish }").unwrap();
+        assert_eq!(module.functions[0].params[0].name.name, "trueish");
+
+        assert!(parse("fn f(return: i32) {}").is_err());
+    }
+
+    #[test]
     fn rejects_out_of_range_int() {
         let source = "fn f(): i32 { return 99999999999 }";
         let err = parse(source).unwrap_err();

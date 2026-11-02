@@ -40,9 +40,18 @@ fn fib(n: i32): i32 {
 
 ![AST from fib function](./images/fib-ast.svg)
 
-### Resolver and type checker
+### Resolver and type checker (`src/check.rs`)
 
-**Not implemented** Resolves identifiers and checks types.
+Resolves names and checks types, producing the program in `src/hir.rs`: variables
+become indices into each function's table of locals, calls point directly at the
+function they call, and every expression carries its type.
+
+It also checks that every variable is assigned before it is read, that functions
+return a value on every path, and that `fn main(): i32` exists. All errors are
+reported, not just the first. To print the result:
+```sh
+cargo run -- <FILE> --emit-hir
+```
 
 ### RJ IR
 
