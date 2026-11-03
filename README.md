@@ -5,7 +5,39 @@ Are you too smart for [golang](https://go.dev/), but too dumb for [rust](https:/
 Fear not, you are not alone!
 
 RJ to the rescue - *The brand new hipster language no one asked for*
-## Pipeline
+## Language
+
+```
+// Functions can return several values.
+fn min_max(a: [i32; 4]): i32, i32 {
+  lo: i32
+  hi: i32
+  i: i32
+  lo, hi, i = a[0], a[0], 1
+
+  while i < 4 {
+    if a[i] < lo {
+      lo = a[i]
+    }
+    if a[i] > hi {
+      hi = a[i]
+    }
+    i = i + 1
+  }
+
+  return lo, hi
+}
+```
+
+- Types: `i32`, `bool` and fixed-size arrays `[i32; N]` / `[bool; N]`.
+- Everything is a value: assigning, passing or returning an array copies it,
+  and a function changing its parameter never affects the caller.
+- Inside a function, variables are mutable: assignment (including parallel
+  `a, b = b, a`), element assignment `a[i] = v`, `if`/`else` and `while`.
+- Variables must be assigned before they are read; array indexes are bounds
+  checked (at compile time for constants, otherwise at run time).
+
+
 
 The compiler is a single crate, `projects/rjc`, with one module per stage.
 

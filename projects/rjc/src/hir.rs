@@ -12,7 +12,7 @@
 // Spans are kept for diagnostics from later passes.
 #![allow(dead_code)]
 
-pub use crate::syntax::ast::{BinOp, Type};
+pub use crate::syntax::ast::{BinOp, Scalar, Type};
 
 use crate::diagnostic::Span;
 
@@ -71,8 +71,10 @@ pub struct Stmt {
 
 #[derive(Debug)]
 pub enum StmtKind {
+    /// All values (and target indices) are evaluated before any target is
+    /// written.
     Assign {
-        targets: Vec<LocalId>,
+        targets: Vec<Place>,
         values: Vec<Value>,
     },
     /// A call whose return values are discarded.
@@ -88,6 +90,14 @@ pub enum StmtKind {
         body: Block,
     },
     Return(Vec<Value>),
+}
+
+#[derive(Debug)]
+pub enum Place {
+    /// The whole variable.
+    Local(LocalId),
+    /// One element of an array variable.
+    Index(LocalId, Expr),
 }
 
 /// One entry of a value list.
@@ -117,6 +127,12 @@ pub enum ExprKind {
         op: BinOp,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
+    },
+    ArrayList(Vec<Expr>),
+    ArrayRepeat(Box<Expr>, u32),
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
     },
 }
 

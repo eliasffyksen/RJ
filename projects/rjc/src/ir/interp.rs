@@ -3,10 +3,19 @@
 
 use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Int(i32),
     Bool(bool),
+    Array(Vec<Value>),
+}
+
+fn array_index(array: &[Value], index: Value) -> usize {
+    match index {
+        Value::Int(i) if i >= 0 && (i as usize) < array.len() => i as usize,
+        Value::Int(i) => panic!("index out of bounds: {i} for length {}", array.len()),
+        other => panic!("array index {other:?}"),
+    }
 }
 
 /// Runs `main` and returns its exit code.
@@ -28,6 +37,7 @@ pub fn call(program: &Program, func: FuncId, args: Vec<Value>) -> Vec<Value> {
 
     let read = |locals: &[Option<Value>], operand: &Operand| match operand {
         Operand::Local(id) => locals[id.0]
+            .clone()
             .unwrap_or_else(|| panic!("{}: read of unassigned local {id}", function.name)),
         Operand::Int(value) => Value::Int(*value),
         Operand::Bool(value) => Value::Bool(*value),
@@ -46,8 +56,35 @@ pub fn call(program: &Program, func: FuncId, args: Vec<Value>) -> Vec<Value> {
                         Rvalue::Binary(op, lhs, rhs) => {
                             binary(*op, read(&locals, lhs), read(&locals, rhs))
                         }
+                        Rvalue::Array(elems) => {
+                            Value::Array(elems.iter().map(|e| read(&locals, e)).collect())
+                        }
+                        Rvalue::Repeat(value, len) => {
+                            Value::Array(vec![read(&locals, value); *len as usize])
+                        }
+                        Rvalue::Index(array, index) => {
+                            let Value::Array(array) = read(&locals, &Operand::Local(*array)) else {
+                                panic!("indexing a non-array");
+                            };
+                            let i = array_index(&array, read(&locals, index));
+                            array[i].clone()
+                        }
                     };
                     locals[dest.0] = Some(value);
+                }
+
+                Stmt::SetIndex {
+                    array,
+                    index,
+                    value,
+                } => {
+                    let index = read(&locals, index);
+                    let value = read(&locals, value);
+                    let Some(Value::Array(array)) = &mut locals[array.0] else {
+                        panic!("{}: element write to unassigned or non-array local", function.name);
+                    };
+                    let i = array_index(array, index);
+                    array[i] = value;
                 }
 
                 Stmt::Call { func, args, dests } => {
@@ -123,6 +160,17 @@ mod tests {
 
             assert_eq!(run(&program), 0, "{} exited with non-zero", path.display());
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn out_of_bounds_index_panics() {
+        let program = lower_source(
+            "fn get(a: [i32; 2], i: i32): i32 { return a[i] }
+             fn main(): i32 { return get([1, 2], 2) }",
+        );
+
+        run(&program);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     diagnostic::{Error, Span},
-    hir::{self, BinOp, FuncId, LocalId, Type},
+    hir::{self, BinOp, FuncId, LocalId, Scalar, Type},
     syntax::ast,
 };
 
@@ -232,29 +232,78 @@ impl FunctionChecker<'_> {
             ast::StmtKind::Assign { targets, values } => {
                 let values = self.values(values);
 
-                let mut ids = vec![];
+                let mut places = vec![];
+                let mut expected = vec![];
+                let mut whole = vec![];
                 let mut ok = true;
 
                 for target in targets {
-                    let Some(id) = self.lookup(target) else {
+                    let Some(id) = self.lookup(&target.name) else {
                         ok = false;
                         continue;
                     };
+                    let ty = self.locals[id.0].ty;
 
-                    if ids.contains(&id) {
+                    if target.index.is_none() && whole.contains(&id) {
                         self.error(
-                            format!("`{}` is assigned more than once", target.name),
+                            format!("`{}` is assigned more than once", target.name.name),
                             target.span,
                         );
                         ok = false;
                     }
 
-                    ids.push(id);
+                    let Some(index) = &target.index else {
+                        whole.push(id);
+                        places.push(hir::Place::Local(id));
+                        expected.push(ty);
+                        continue;
+                    };
+
+                    // Writing one element keeps the others, so the array
+                    // must already hold a value.
+                    if !self.assigned.contains(&id) {
+                        self.error(
+                            format!("`{}` is used before it is assigned", target.name.name),
+                            target.name.span,
+                        );
+                        ok = false;
+                    }
+
+                    let Type::Array(elem, len) = ty else {
+                        self.error(
+                            format!("cannot index into `{}` of type {ty}", target.name.name),
+                            target.span,
+                        );
+                        ok = false;
+                        continue;
+                    };
+
+                    match self.index(index, len) {
+                        Some(index) => {
+                            places.push(hir::Place::Index(id, index));
+                            expected.push(elem.ty());
+                        }
+                        None => ok = false,
+                    }
+                }
+
+                // `a, a[0] = ...` writes `a` twice.
+                for target in targets {
+                    if target.index.is_some()
+                        && self.scopes.iter().rev().find_map(|s| s.get(&target.name.name))
+                            .is_some_and(|id| whole.contains(id))
+                    {
+                        self.error(
+                            format!("`{}` is assigned more than once", target.name.name),
+                            target.span,
+                        );
+                        ok = false;
+                    }
                 }
 
                 // Mark the targets as assigned even if the right-hand side
                 // failed, so we don't also report every later use of them.
-                self.assigned.extend(ids.iter().copied());
+                self.assigned.extend(whole.iter().copied());
 
                 let (values, types) = values?;
 
@@ -262,16 +311,11 @@ impl FunctionChecker<'_> {
                     return None;
                 }
 
-                let expected = ids
-                    .iter()
-                    .map(|id| self.locals[id.0].ty)
-                    .collect::<Vec<_>>();
-
                 self.expect_values(&expected, &types, span, "assignment", "value")?;
 
                 (
                     hir::StmtKind::Assign {
-                        targets: ids,
+                        targets: places,
                         values,
                     },
                     false,
@@ -522,7 +566,9 @@ impl FunctionChecker<'_> {
                     (BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, Type::I32, Type::I32) => {
                         Type::Bool
                     }
-                    (BinOp::Eq | BinOp::Ne, l, r) if l == r => Type::Bool,
+                    (BinOp::Eq | BinOp::Ne, l, r) if l == r && l.scalar().is_some() => {
+                        Type::Bool
+                    }
 
                     (op, l, r) => {
                         self.error(
@@ -542,9 +588,110 @@ impl FunctionChecker<'_> {
                     ty,
                 )
             }
+            ast::ExprKind::ArrayList(elems) => {
+                let mut checked = vec![];
+                let mut ok = true;
+
+                for elem in elems {
+                    match self.expr(elem) {
+                        Some(elem) => checked.push(elem),
+                        None => ok = false,
+                    }
+                }
+
+                if !ok {
+                    return None;
+                }
+
+                let Some(first) = checked.first() else {
+                    self.error(
+                        "the element type of an empty array can't be inferred; \
+                         use a repeat like `[0; 0]`",
+                        span,
+                    );
+                    return None;
+                };
+
+                let elem = self.element_type(first.ty, first.span)?;
+
+                for other in &checked[1..] {
+                    if other.ty != elem.ty() {
+                        self.error(format!("expected {}, found {}", elem.ty(), other.ty), other.span);
+                        ok = false;
+                    }
+                }
+
+                if !ok {
+                    return None;
+                }
+
+                let len = checked.len() as u32;
+                (hir::ExprKind::ArrayList(checked), Type::Array(elem, len))
+            }
+
+            ast::ExprKind::ArrayRepeat(value, len) => {
+                let value = self.expr(value)?;
+                let elem = self.element_type(value.ty, value.span)?;
+
+                (
+                    hir::ExprKind::ArrayRepeat(Box::new(value), *len),
+                    Type::Array(elem, *len),
+                )
+            }
+
+            ast::ExprKind::Index { base, index } => {
+                let base = self.expr(base)?;
+
+                let Type::Array(elem, len) = base.ty else {
+                    self.error(format!("cannot index into a value of type {}", base.ty), base.span);
+                    return None;
+                };
+
+                let index = self.index(index, len)?;
+
+                (
+                    hir::ExprKind::Index {
+                        base: Box::new(base),
+                        index: Box::new(index),
+                    },
+                    elem.ty(),
+                )
+            }
         };
 
         Some(hir::Expr { kind, ty, span })
+    }
+
+    fn element_type(&mut self, ty: Type, span: Span) -> Option<Scalar> {
+        let scalar = ty.scalar();
+
+        if scalar.is_none() {
+            self.error(format!("array elements must be i32 or bool, found {ty}"), span);
+        }
+
+        scalar
+    }
+
+    /// Checks an index into an array of length `len`.
+    fn index(&mut self, index: &ast::Expr, len: u32) -> Option<hir::Expr> {
+        let index = self.expr(index)?;
+
+        if index.ty != Type::I32 {
+            self.error(format!("array index must be i32, found {}", index.ty), index.span);
+            return None;
+        }
+
+        if let hir::ExprKind::Int(value) = index.kind {
+            if value < 0 || value as u32 >= len {
+                self.error(
+                    format!("index {value} is out of bounds for an array of length {len}"),
+                    index.span,
+                );
+                return None;
+            }
+        }
+
+        Some(index)
     }
 }
 
@@ -659,6 +806,72 @@ mod tests {
         let (message, at) = error("fn main(): i32 { while 0 { } return 0 }");
         assert_eq!(message, "condition must be bool, found i32");
         assert_eq!(at, "0");
+    }
+
+    #[test]
+    fn constant_index_out_of_bounds() {
+        let (message, at) = error("fn main(): i32 { a: [i32; 3] a = [0; 3] return a[3] }");
+        assert_eq!(message, "index 3 is out of bounds for an array of length 3");
+        assert_eq!(at, "3");
+    }
+
+    #[test]
+    fn index_must_be_i32() {
+        let (message, _) = error("fn main(): i32 { a: [i32; 3] a = [0; 3] return a[true] }");
+        assert_eq!(message, "array index must be i32, found bool");
+    }
+
+    #[test]
+    fn indexing_a_scalar() {
+        let (message, _) = error("fn main(): i32 { a: i32 a = 1 return a[0] }");
+        assert_eq!(message, "cannot index into a value of type i32");
+    }
+
+    #[test]
+    fn element_assignment_needs_assigned_array() {
+        let (message, at) = error("fn main(): i32 { a: [i32; 3] a[0] = 1 return 0 }");
+        assert_eq!(message, "`a` is used before it is assigned");
+        assert_eq!(at, "a");
+    }
+
+    #[test]
+    fn mixed_element_types() {
+        let (message, at) = error("fn main(): i32 { a: [i32; 2] a = [1, true] return 0 }");
+        assert_eq!(message, "expected i32, found bool");
+        assert_eq!(at, "true");
+    }
+
+    #[test]
+    fn array_length_mismatch() {
+        let (message, _) = error("fn main(): i32 { a: [i32; 2] a = [1, 2, 3] return 0 }");
+        assert_eq!(message, "expected [i32; 2], found [i32; 3]");
+    }
+
+    #[test]
+    fn empty_array_literal() {
+        let (message, _) = error("fn main(): i32 { a: [i32; 0] a = [] return 0 }");
+        assert!(message.starts_with("the element type of an empty array can't be inferred"));
+    }
+
+    #[test]
+    fn arrays_cannot_be_compared() {
+        let (message, _) = error(
+            "fn main(): i32 { a: [i32; 1] a = [1] if a == a { return 1 } return 0 }",
+        );
+        assert_eq!(message, "cannot apply `==` to [i32; 1] and [i32; 1]");
+    }
+
+    #[test]
+    fn whole_and_element_assignment_together() {
+        for targets in ["a, a[0]", "a[0], a"] {
+            let source = format!(
+                "fn main(): i32 {{ a: [i32; 1] a = [1] {targets} = [2], 3 return 0 }}"
+            );
+            let errors = check_source(&source).unwrap_err();
+            let messages = errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>();
+
+            assert_eq!(messages, ["`a` is assigned more than once"], "{targets}");
+        }
     }
 
     #[test]

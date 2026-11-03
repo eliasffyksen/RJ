@@ -1,4 +1,5 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
 
 func = {
   "fn" ~ ident
@@ -47,7 +48,11 @@ func_ret = {
 }
 
 assign = {
-  ident ~ ("," ~ ident)* ~ "=" ~ expr_list
+  place ~ ("," ~ place)* ~ "=" ~ expr_list
+}
+
+place = {
+  ident ~ ("[" ~ expr_elm ~ "]")?
 }
 
 expr_list = {
@@ -69,14 +74,31 @@ pred_1 = {
 }
 
 pred_2 = {
-  pred_max
+  index
+  | pred_max
+}
+
+index = {
+  pred_max ~ ("[" ~ expr_elm ~ "]")+
 }
 
 pred_max = {
   func_call
   | ident
   | literal
+  | array_repeat
+  | array_list
 }
+
+array_repeat = {
+  "[" ~ expr_elm ~ ";" ~ array_len ~ "]"
+}
+
+array_list = {
+  "[" ~ (expr_elm ~ ("," ~ expr_elm)*)? ~ "]"
+}
+
+array_len = @{ ASCII_DIGIT+ }
 
 literal = { int | bool }
 
@@ -120,8 +142,17 @@ var_decl = {
 }
 
 var_type = {
+  scalar_type
+  | array_type
+}
+
+scalar_type = {
   "i32"
   | "bool"
+}
+
+array_type = {
+  "[" ~ scalar_type ~ ";" ~ array_len ~ "]"
 }
 
 module = {

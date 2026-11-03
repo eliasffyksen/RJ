@@ -2,8 +2,10 @@
 //! a flat table of locals.
 //!
 //! - Parameters, return slots, user variables and temporaries are all locals.
-//! - Statements only ever write whole locals (`dest = ...` or a call writing
-//!   its `dests`), and operands only ever read them. That makes def/use and
+//! - Statements write whole locals (`dest = ...` or a call writing its
+//!   `dests`), except `array[index] = value`, which updates one element of
+//!   an array local in place. Operands only ever read locals, and reading an
+//!   array local copies it. That makes def/use and
 //!   liveness of every value explicit, which is what the parameter-mode
 //!   analysis needs: `x = f(x)` appears as `call f(x) -> [x]`.
 //! - A call reads all of its arguments before writing any of its `dests`.
@@ -88,6 +90,12 @@ pub enum Stmt {
         args: Vec<Operand>,
         dests: Vec<LocalId>,
     },
+    /// `array[index] = value`: updates one element, keeping the others.
+    SetIndex {
+        array: LocalId,
+        index: Operand,
+        value: Operand,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +110,12 @@ pub enum Operand {
 pub enum Rvalue {
     Use(Operand),
     Binary(BinOp, Operand, Operand),
+    /// `[a, b, c]`
+    Array(Vec<Operand>),
+    /// `[value; len]`
+    Repeat(Operand, u32),
+    /// `array[index]`
+    Index(LocalId, Operand),
 }
 
 #[derive(Debug)]
@@ -186,6 +200,11 @@ impl Function {
             for stmt in &block.stmts {
                 match stmt {
                     Stmt::Assign { dest, value } => writeln!(f, "    {dest} = {value}")?,
+                    Stmt::SetIndex {
+                        array,
+                        index,
+                        value,
+                    } => writeln!(f, "    {array}[{index}] = {value}")?,
                     Stmt::Call { func, args, dests } => {
                         let args = args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
                         let dests = dests.iter().map(|d| d.to_string()).collect::<Vec<_>>();
@@ -242,6 +261,12 @@ impl fmt::Display for Rvalue {
         match self {
             Rvalue::Use(operand) => write!(f, "{operand}"),
             Rvalue::Binary(op, lhs, rhs) => write!(f, "{lhs} {} {rhs}", op.as_str()),
+            Rvalue::Array(elems) => {
+                let elems = elems.iter().map(|e| e.to_string()).collect::<Vec<_>>();
+                write!(f, "[{}]", elems.join(", "))
+            }
+            Rvalue::Repeat(value, len) => write!(f, "[{value}; {len}]"),
+            Rvalue::Index(array, index) => write!(f, "{array}[{index}]"),
         }
     }
 }

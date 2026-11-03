@@ -160,24 +160,79 @@ impl Builder<'_> {
         }
     }
 
-    fn assign(&mut self, targets: &[LocalId], values: &[hir::Value]) {
-        match (targets, values) {
-            ([target], [hir::Value::Single(expr)]) => self.expr_into(expr, *target),
+    fn assign(&mut self, targets: &[hir::Place], values: &[hir::Value]) {
+        let whole_locals = targets
+            .iter()
+            .map(|target| match target {
+                hir::Place::Local(id) => Some(*id),
+                hir::Place::Index(..) => None,
+            })
+            .collect::<Option<Vec<_>>>();
 
-            (_, [hir::Value::Multi(call)]) => self.call(call, targets.to_vec()),
+        match (targets, values, whole_locals) {
+            ([hir::Place::Local(target)], [hir::Value::Single(expr)], _) => {
+                self.expr_into(expr, *target)
+            }
 
-            // `a, b = b, a`: every value must be read before any target is
-            // written, so go through temporaries.
+            ([hir::Place::Index(array, index)], [hir::Value::Single(expr)], _) => {
+                let value = self.operand(expr);
+                let index = self.operand(index);
+
+                self.push(Stmt::SetIndex {
+                    array: *array,
+                    index,
+                    value,
+                });
+            }
+
+            (_, [hir::Value::Multi(call)], Some(dests)) => self.call(call, dests),
+
+            // `a, b = b, a` or `a[i], a[j] = a[j], a[i]`: every value and
+            // index must be evaluated before any target is written, so go
+            // through temporaries.
             _ => {
                 let temps = self.values_into_temps(values);
 
-                for (target, temp) in targets.iter().zip(temps) {
-                    self.push(Stmt::Assign {
-                        dest: *target,
-                        value: Rvalue::Use(Operand::Local(temp)),
-                    });
+                let indices = targets
+                    .iter()
+                    .map(|target| match target {
+                        hir::Place::Index(_, index) => Some(self.stable_operand(index)),
+                        hir::Place::Local(_) => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                for ((target, temp), index) in targets.iter().zip(temps).zip(indices) {
+                    let value = Operand::Local(temp);
+
+                    match target {
+                        hir::Place::Local(dest) => self.push(Stmt::Assign {
+                            dest: *dest,
+                            value: Rvalue::Use(value),
+                        }),
+                        hir::Place::Index(array, _) => self.push(Stmt::SetIndex {
+                            array: *array,
+                            index: index.unwrap(),
+                            value,
+                        }),
+                    }
                 }
             }
+        }
+    }
+
+    /// Like [`Self::operand`], but copies locals into a temporary so the
+    /// operand keeps its value if the local is written afterwards.
+    fn stable_operand(&mut self, expr: &hir::Expr) -> Operand {
+        match self.operand(expr) {
+            Operand::Local(id) => {
+                let temp = self.new_temp(expr.ty);
+                self.push(Stmt::Assign {
+                    dest: temp,
+                    value: Rvalue::Use(Operand::Local(id)),
+                });
+                Operand::Local(temp)
+            }
+            operand => operand,
         }
     }
 
@@ -331,7 +386,11 @@ impl Builder<'_> {
             hir::ExprKind::Int(value) => Operand::Int(*value),
             hir::ExprKind::Bool(value) => Operand::Bool(*value),
             hir::ExprKind::Local(id) => Operand::Local(*id),
-            hir::ExprKind::Call(_) | hir::ExprKind::Binary { .. } => {
+            hir::ExprKind::Call(_)
+            | hir::ExprKind::Binary { .. }
+            | hir::ExprKind::ArrayList(_)
+            | hir::ExprKind::ArrayRepeat(..)
+            | hir::ExprKind::Index { .. } => {
                 let temp = self.new_temp(expr.ty);
                 self.expr_into(expr, temp);
                 Operand::Local(temp)
@@ -351,6 +410,37 @@ impl Builder<'_> {
                 self.push(Stmt::Assign {
                     dest,
                     value: Rvalue::Binary(*op, lhs, rhs),
+                });
+            }
+
+            hir::ExprKind::ArrayList(elems) => {
+                let elems = elems.iter().map(|elem| self.operand(elem)).collect();
+
+                self.push(Stmt::Assign {
+                    dest,
+                    value: Rvalue::Array(elems),
+                });
+            }
+
+            hir::ExprKind::ArrayRepeat(value, len) => {
+                let value = self.operand(value);
+
+                self.push(Stmt::Assign {
+                    dest,
+                    value: Rvalue::Repeat(value, *len),
+                });
+            }
+
+            hir::ExprKind::Index { base, index } => {
+                // Arrays have no constant operands, so this is always a local.
+                let Operand::Local(array) = self.operand(base) else {
+                    unreachable!("array operand is not a local");
+                };
+                let index = self.operand(index);
+
+                self.push(Stmt::Assign {
+                    dest,
+                    value: Rvalue::Index(array, index),
                 });
             }
 

@@ -49,7 +49,7 @@ pub struct Stmt {
 pub enum StmtKind {
     Decl(VarDecl),
     Assign {
-        targets: Vec<Ident>,
+        targets: Vec<Place>,
         values: Vec<Expr>,
     },
     Call(Call),
@@ -82,6 +82,23 @@ pub enum ExprKind {
         lhs: Box<Expr>,
         rhs: Box<Expr>,
     },
+    /// `[a, b, c]`
+    ArrayList(Vec<Expr>),
+    /// `[value; len]`
+    ArrayRepeat(Box<Expr>, u32),
+    /// `base[index]`
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
+}
+
+/// An assignment target: `x` or `x[index]`.
+#[derive(Debug)]
+pub struct Place {
+    pub name: Ident,
+    pub index: Option<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -127,13 +144,42 @@ pub struct Ident {
 pub enum Type {
     I32,
     Bool,
+    /// `[elem; len]`
+    Array(Scalar, u32),
+}
+
+/// Types that can be array elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scalar {
+    I32,
+    Bool,
+}
+
+impl Scalar {
+    pub fn ty(self) -> Type {
+        match self {
+            Scalar::I32 => Type::I32,
+            Scalar::Bool => Type::Bool,
+        }
+    }
+}
+
+impl Type {
+    pub fn scalar(self) -> Option<Scalar> {
+        match self {
+            Type::I32 => Some(Scalar::I32),
+            Type::Bool => Some(Scalar::Bool),
+            Type::Array(..) => None,
+        }
+    }
 }
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Type::I32 => "i32",
-            Type::Bool => "bool",
-        })
+        match self {
+            Type::I32 => f.write_str("i32"),
+            Type::Bool => f.write_str("bool"),
+            Type::Array(elem, len) => write!(f, "[{}; {len}]", elem.ty()),
+        }
     }
 }

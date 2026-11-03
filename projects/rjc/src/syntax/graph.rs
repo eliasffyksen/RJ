@@ -83,13 +83,18 @@ impl Graph<'_> {
             StmtKind::Decl(decl) => self.node(&format!("Decl|{}: {}", decl.name.name, decl.ty)),
 
             StmtKind::Assign { targets, values } => {
-                let targets = targets
-                    .iter()
-                    .map(|t| t.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let node = self.node("Assign")?;
 
-                let node = self.node(&format!("Assign|{targets}"))?;
+                for target in targets {
+                    let child = self.node(&format!("Place|{}", target.name.name))?;
+                    self.edge(node, child)?;
+
+                    if let Some(index) = &target.index {
+                        let index = self.expr(index)?;
+                        self.edge(child, index)?;
+                    }
+                }
+
                 self.exprs(node, values)?;
                 Ok(node)
             }
@@ -158,6 +163,28 @@ impl Graph<'_> {
             ExprKind::Bool(value) => self.node(&format!("Bool|{value}")),
             ExprKind::Var(ident) => self.node(&format!("Var|{}", ident.name)),
             ExprKind::Call(call) => self.call(call),
+            ExprKind::ArrayList(elems) => {
+                let node = self.node("Array")?;
+                self.exprs(node, elems)?;
+                Ok(node)
+            }
+            ExprKind::ArrayRepeat(value, len) => {
+                let node = self.node(&format!("Array|len: {len}"))?;
+                let child = self.expr(value)?;
+                self.edge(node, child)?;
+                Ok(node)
+            }
+            ExprKind::Index { base, index } => {
+                let node = self.node("Index")?;
+
+                let child = self.expr(base)?;
+                self.edge(node, child)?;
+
+                let child = self.expr(index)?;
+                self.edge(node, child)?;
+
+                Ok(node)
+            }
             ExprKind::Binary { op, lhs, rhs } => {
                 let node = self.node(op.as_str())?;
 

@@ -52,7 +52,11 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::if_stmt => "if statement",
             Rule::while_stmt => "while loop",
             Rule::var_decl => "variable declaration",
-            Rule::var_type | Rule::ret_type => "type",
+            Rule::var_type | Rule::ret_type | Rule::scalar_type | Rule::array_type => "type",
+            Rule::index => "expression",
+            Rule::array_list | Rule::array_repeat => "array",
+            Rule::array_len => "array length",
+            Rule::place => "variable",
             Rule::stmt => "statement",
             Rule::func => "function",
             Rule::expr_list => "expression list",
@@ -89,8 +93,8 @@ fn function(pair: Pair<Rule>) -> Result<Function> {
 
     for pair in inner {
         match pair.as_rule() {
-            Rule::var_decl => params.push(var_decl(pair)),
-            Rule::ret_type => returns.push(ty(pair.into_inner().next().unwrap())),
+            Rule::var_decl => params.push(var_decl(pair)?),
+            Rule::ret_type => returns.push(ty(pair.into_inner().next().unwrap())?),
             Rule::block => body = Some(block(pair)?),
             rule => unreachable!("unexpected {rule:?} in function"),
         }
@@ -114,23 +118,57 @@ fn ident(pair: Pair<Rule>) -> Ident {
     }
 }
 
-fn ty(pair: Pair<Rule>) -> Type {
+fn ty(pair: Pair<Rule>) -> Result<Type> {
+    debug_assert_eq!(pair.as_rule(), Rule::var_type);
+    let pair = pair.into_inner().next().unwrap();
+
+    match pair.as_rule() {
+        Rule::scalar_type => Ok(scalar(pair).ty()),
+        Rule::array_type => {
+            let mut inner = pair.into_inner();
+            let elem = scalar(inner.next().unwrap());
+            let len = array_len(inner.next().unwrap())?;
+
+            Ok(Type::Array(elem, len))
+        }
+        rule => unreachable!("unexpected {rule:?} in type"),
+    }
+}
+
+fn scalar(pair: Pair<Rule>) -> Scalar {
     match pair.as_str() {
-        "i32" => Type::I32,
-        "bool" => Type::Bool,
+        "i32" => Scalar::I32,
+        "bool" => Scalar::Bool,
         other => unreachable!("unknown type {other:?}"),
     }
 }
 
-fn var_decl(pair: Pair<Rule>) -> VarDecl {
+fn array_len(pair: Pair<Rule>) -> Result<u32> {
+    pair.as_str()
+        .parse()
+        .map_err(|_| Error::new("array length is too large", span(&pair)))
+}
+
+fn var_decl(pair: Pair<Rule>) -> Result<VarDecl> {
     let span = span(&pair);
     let mut inner = pair.into_inner();
 
-    VarDecl {
+    Ok(VarDecl {
         name: ident(inner.next().unwrap()),
-        ty: ty(inner.next().unwrap()),
+        ty: ty(inner.next().unwrap())?,
         span,
-    }
+    })
+}
+
+fn place(pair: Pair<Rule>) -> Result<Place> {
+    let span = span(&pair);
+    let mut inner = pair.into_inner();
+
+    Ok(Place {
+        name: ident(inner.next().unwrap()),
+        index: inner.next().map(expr).transpose()?,
+        span,
+    })
 }
 
 fn block(pair: Pair<Rule>) -> Result<Block> {
@@ -145,7 +183,7 @@ fn stmt(pair: Pair<Rule>) -> Result<Stmt> {
     let pair = pair.into_inner().next().unwrap();
 
     let kind = match pair.as_rule() {
-        Rule::var_decl => StmtKind::Decl(var_decl(pair)),
+        Rule::var_decl => StmtKind::Decl(var_decl(pair)?),
 
         Rule::func_ret => StmtKind::Return(expr_list(pair.into_inner().next().unwrap())?),
 
@@ -155,7 +193,7 @@ fn stmt(pair: Pair<Rule>) -> Result<Stmt> {
 
             for pair in pair.into_inner() {
                 match pair.as_rule() {
-                    Rule::ident => targets.push(ident(pair)),
+                    Rule::place => targets.push(place(pair)?),
                     Rule::expr_list => values = expr_list(pair)?,
                     rule => unreachable!("unexpected {rule:?} in assignment"),
                 }
@@ -232,6 +270,37 @@ fn expr(mut pair: Pair<Rule>) -> Result<Expr> {
         Rule::ident => ExprKind::Var(ident(pair)),
 
         Rule::func_call => ExprKind::Call(call(pair)?),
+
+        Rule::array_list => ExprKind::ArrayList(pair.into_inner().map(expr).collect::<Result<_>>()?),
+
+        Rule::array_repeat => {
+            let mut inner = pair.into_inner();
+            let value = expr(inner.next().unwrap())?;
+            let len = array_len(inner.next().unwrap())?;
+
+            ExprKind::ArrayRepeat(Box::new(value), len)
+        }
+
+        // `a[i][j]` parses as one flat sequence; fold it left to right.
+        Rule::index => {
+            let mut inner = pair.into_inner();
+            let mut base = expr(inner.next().unwrap())?;
+
+            for index in inner {
+                let index = expr(index)?;
+                let span = Span::new(base.span.start, (index.span.end + 1).min(span.end));
+
+                base = Expr {
+                    kind: ExprKind::Index {
+                        base: Box::new(base),
+                        index: Box::new(index),
+                    },
+                    span,
+                };
+            }
+
+            return Ok(base);
+        }
 
         Rule::cmp => {
             let mut inner = pair.into_inner();
@@ -339,6 +408,27 @@ mod tests {
         assert_eq!(module.functions[0].params[0].name.name, "trueish");
 
         assert!(parse("fn f(return: i32) {}").is_err());
+    }
+
+    #[test]
+    fn skips_comments() {
+        let module = parse(
+            "// leading
+             fn f(): i32 { // trailing
+               return 1 // after
+             }",
+        )
+        .unwrap();
+
+        assert_eq!(module.functions[0].body.stmts.len(), 1);
+    }
+
+    #[test]
+    fn parses_array_types_and_indexing() {
+        let module = parse("fn f(a: [bool; 4]): [i32; 2] { a[1] = a[0] return [0; 2] }").unwrap();
+
+        assert_eq!(module.functions[0].params[0].ty, Type::Array(Scalar::Bool, 4));
+        assert_eq!(module.functions[0].returns, vec![Type::Array(Scalar::I32, 2)]);
     }
 
     #[test]

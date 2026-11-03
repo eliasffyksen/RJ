@@ -1,0 +1,86 @@
+fn set_first(a: [i32; 3], value: i32): [i32; 3] {
+  a[0] = value
+  return a
+}
+
+fn clobber(a: [i32; 3]): i32 {
+  a[0] = 100
+  a[1] = 100
+  return a[0] + a[1]
+}
+
+fn main(): i32 {
+  a: [i32; 3]
+  a = [1, 2, 3]
+
+  // Assignment copies.
+  b: [i32; 3]
+  b = a
+  b[0] = 7
+
+  if a[0] != 1 {
+    return 1
+  }
+
+  if b[0] != 7 {
+    return 1
+  }
+
+  // A callee changing its parameter doesn't change the caller's array.
+  if clobber(a) != 200 {
+    return 1
+  }
+
+  if a[0] != 1 {
+    return 1
+  }
+
+  if a[1] != 2 {
+    return 1
+  }
+
+  // Passing and getting back a changed copy leaves the original alone.
+  c: [i32; 3]
+  c = set_first(a, 9)
+
+  if a[0] != 1 {
+    return 1
+  }
+
+  if c[0] != 9 {
+    return 1
+  }
+
+  // Overwriting the argument with the result.
+  a = set_first(a, 5)
+
+  if a[0] != 5 {
+    return 1
+  }
+
+  if a[2] != 3 {
+    return 1
+  }
+
+  // Swapping whole arrays.
+  a, c = c, a
+
+  if a[0] != 9 {
+    return 1
+  }
+
+  if c[0] != 5 {
+    return 1
+  }
+
+  // Large array filled by a repeat.
+  big: [i32; 1000]
+  big = [3; 1000]
+  big[999] = 4
+
+  if big[0] + big[500] + big[999] != 10 {
+    return 1
+  }
+
+  return 0
+}
