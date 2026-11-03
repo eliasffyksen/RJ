@@ -23,7 +23,7 @@ use std::{
 };
 
 use crate::{
-    diagnostic::{Error, Span},
+    diagnostic::{suggest, Code, Error, Span},
     hir::{self, BinOp, FuncId, LocalId, StructDef, Type},
     syntax::ast,
     types::{Field, NamedId, StructId},
@@ -41,7 +41,7 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
         let name = function.name.name.as_str();
 
         if functions_by_name.contains_key(name) {
-            errors.push(Error::new(
+            errors.push(Error::new(Code::Duplicate, 
                 format!("function `{name}` is already defined"),
                 function.name.span,
             ));
@@ -65,21 +65,21 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
         let ty = match types.by_name.get(&receiver.name) {
             Some(ty) => ty.clone(),
             None if matches!(receiver.name.as_str(), "i32" | "bool") => {
-                errors.push(Error::new(
+                errors.push(Error::new(Code::MethodOnBuiltin, 
                     "methods can only be defined on types declared with `type`",
                     receiver.span,
                 ));
                 continue;
             }
             None => {
-                errors.push(Error::new(format!("unknown type `{}`", receiver.name), receiver.span));
+                errors.push(Error::new(Code::UnknownType, format!("unknown type `{}`", receiver.name), receiver.span));
                 continue;
             }
         };
 
         if let Type::Struct(id, _) = &ty {
             if types.structs[id.0].field_index(name).is_some() {
-                errors.push(Error::new(
+                errors.push(Error::new(Code::Duplicate, 
                     format!("{ty} has both a field and a method called `{name}`"),
                     function.name.span,
                 ));
@@ -89,7 +89,7 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
 
         let key = (ty.clone(), name.clone());
         if methods.contains_key(&key) {
-            errors.push(Error::new(
+            errors.push(Error::new(Code::Duplicate, 
                 format!("method `{ty}.{name}` is already defined"),
                 function.name.span,
             ));
@@ -138,13 +138,13 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
                 .is_none_or(|sig| sig.params.is_empty() && sig.returns == [Type::I32]);
 
             if !valid {
-                errors.push(Error::new(
+                errors.push(Error::new(Code::Main, 
                     "`main` must be declared as `fn main(): i32`",
                     module.functions[id.0].name.span,
                 ));
             }
         }
-        None => errors.push(Error::new("no `main` function defined", Span::new(0, 0))),
+        None => errors.push(Error::new(Code::Main, "no `main` function defined", Span::new(0, 0))),
     }
 
     let functions = module
@@ -236,7 +236,7 @@ impl Types {
             let name = &def.name.name;
 
             if types.by_name.contains_key(name) || matches!(name.as_str(), "i32" | "bool") {
-                errors.push(Error::new(
+                errors.push(Error::new(Code::Duplicate, 
                     format!("type `{name}` is already defined"),
                     def.name.span,
                 ));
@@ -244,7 +244,7 @@ impl Types {
             }
             if functions_by_name.contains_key(name.as_str()) {
                 // `Name(...)` must mean one thing.
-                errors.push(Error::new(
+                errors.push(Error::new(Code::Duplicate, 
                     format!("`{name}` is defined as both a type and a function"),
                     def.name.span,
                 ));
@@ -278,7 +278,7 @@ impl Types {
 
                     for field in decls {
                         if fields.iter().any(|f| f.name == field.name.name) {
-                            errors.push(Error::new(
+                            errors.push(Error::new(Code::Duplicate, 
                                 format!("field `{}` is already declared", field.name.name),
                                 field.name.span,
                             ));
@@ -307,7 +307,7 @@ impl Types {
         let mut cyclic = vec![];
         for (def, ty) in &defined {
             if types.contains(&mut vec![], ty, ty) {
-                errors.push(Error::new(
+                errors.push(Error::new(Code::InfiniteType, 
                     format!(
                         "type `{}` contains itself, so it would have infinite size",
                         def.name.name
@@ -361,7 +361,13 @@ impl Types {
             ast::TypeExprKind::Named(name) => match self.by_name.get(&name.name) {
                 Some(ty) => Some(ty.clone()),
                 None => {
-                    errors.push(Error::new(format!("unknown type `{}`", name.name), name.span));
+                    let mut error =
+                        Error::new(Code::UnknownType, format!("unknown type `{}`", name.name), name.span);
+                    let names = self.by_name.keys().map(String::as_str).chain(["i32", "bool"]);
+                    if let Some(suggestion) = suggest(&name.name, names) {
+                        error.help(format!("did you mean `{suggestion}`?"));
+                    }
+                    errors.push(error);
                     None
                 }
             },
@@ -527,8 +533,9 @@ struct FunctionChecker<'a> {
 type StmtResult = Option<(Option<hir::Stmt>, bool)>;
 
 impl FunctionChecker<'_> {
-    fn error(&mut self, message: impl Into<String>, span: Span) {
-        self.errors.push(Error::new(message, span));
+    fn error(&mut self, code: Code, message: impl Into<String>, span: Span) -> &mut Error {
+        self.errors.push(Error::new(code, message, span));
+        self.errors.last_mut().unwrap()
     }
 
     fn under(&self, ty: &Type) -> Type {
@@ -591,13 +598,14 @@ impl FunctionChecker<'_> {
         let (body, diverges) = self.stmts(&function.body)?;
 
         if !diverges && !function.returns.is_empty() {
-            self.error(
+            self.error(Code::MissingReturn, 
                 format!(
                     "function `{}` can reach its end without returning a value",
                     function.name.name
                 ),
                 function.name.span,
-            );
+            )
+            .help("add a `return` at the end; loops never count as returning");
             return None;
         }
 
@@ -631,7 +639,7 @@ impl FunctionChecker<'_> {
         let scope = self.scopes.last().unwrap();
 
         if scope.contains_key(name) {
-            self.error(
+            self.error(Code::Duplicate, 
                 format!("`{name}` is already declared in this scope"),
                 decl.name.span,
             );
@@ -662,11 +670,20 @@ impl FunctionChecker<'_> {
         }
 
         if name == "this" {
-            self.error("`this` can only be used in methods", ident.span);
+            self.error(Code::ThisOutsideMethod, "`this` can only be used in methods", ident.span);
         } else if self.functions_by_name.contains_key(name) {
-            self.error(format!("`{name}` is a function, not a variable"), ident.span);
+            self.error(Code::WrongKindOfName, format!("`{name}` is a function, not a variable"), ident.span);
         } else {
-            self.error(format!("unknown variable `{name}`"), ident.span);
+            let locals = self
+                .scopes
+                .iter()
+                .flat_map(|scope| scope.keys().map(String::as_str))
+                .collect::<Vec<_>>();
+            let suggestion = suggest(name, locals).map(str::to_string);
+            let error = self.error(Code::UnknownVariable, format!("unknown variable `{name}`"), ident.span);
+            if let Some(suggestion) = suggestion {
+                error.help(format!("did you mean `{suggestion}`?"));
+            }
         }
 
         None
@@ -688,7 +705,8 @@ impl FunctionChecker<'_> {
 
         for stmt in &block.stmts {
             if diverges {
-                self.error("unreachable statement after `return`", stmt.span);
+                self.error(Code::Unreachable, "unreachable statement after `return`", stmt.span)
+                    .help("remove it, or move it before the `return`");
                 return None;
             }
 
@@ -725,7 +743,7 @@ impl FunctionChecker<'_> {
                     if target.path.is_empty() {
                         if let Some(id) = self.find_local(&target.name.name) {
                             if whole.contains(&id) {
-                                self.error(
+                                self.error(Code::AssignedTwice, 
                                     format!("`{}` is assigned more than once", target.name.name),
                                     target.span,
                                 );
@@ -749,7 +767,7 @@ impl FunctionChecker<'_> {
                     let root = self.find_local(&target.name.name);
 
                     if !target.path.is_empty() && root.is_some_and(|id| whole.contains(&id)) {
-                        self.error(
+                        self.error(Code::AssignedTwice, 
                             format!("`{}` is assigned more than once", target.name.name),
                             target.span,
                         );
@@ -882,10 +900,11 @@ impl FunctionChecker<'_> {
         // Writing a part keeps the rest, so the variable must already hold a
         // value.
         if !target.path.is_empty() && !self.assigned.contains(&local) {
-            self.error(
+            self.error(Code::UseBeforeAssign, 
                 format!("`{}` is used before it is assigned", target.name.name),
                 target.name.span,
-            );
+            )
+            .help("assigning a part keeps the rest, so assign the whole value first");
             return None;
         }
 
@@ -895,7 +914,7 @@ impl FunctionChecker<'_> {
             match elem {
                 ast::PlaceElem::Index(index) => {
                     let Type::Array(elem, len) = self.under(&ty) else {
-                        self.error(format!("cannot index into a value of type {ty}"), target.span);
+                        self.error(Code::NotIndexable, format!("cannot index into a value of type {ty}"), target.span);
                         return None;
                     };
 
@@ -917,14 +936,19 @@ impl FunctionChecker<'_> {
     /// Looks up field `name` on a value of type `ty`.
     fn field(&mut self, ty: &Type, name: &ast::Ident) -> Option<(usize, Type)> {
         let Type::Struct(id, _) = self.under(ty) else {
-            self.error(format!("{ty} has no field `{}`", name.name), name.span);
+            self.error(Code::UnknownField, format!("{ty} has no field `{}`", name.name), name.span);
             return None;
         };
 
         let def = &self.types.structs[id.0];
 
         let Some(index) = def.field_index(&name.name) else {
-            self.error(format!("{ty} has no field `{}`", name.name), name.span);
+            let suggestion =
+                suggest(&name.name, def.fields.iter().map(|f| f.name.as_str())).map(str::to_string);
+            let error = self.error(Code::UnknownField, format!("{ty} has no field `{}`", name.name), name.span);
+            if let Some(suggestion) = suggestion {
+                error.help(format!("did you mean `{suggestion}`?"));
+            }
             return None;
         };
 
@@ -935,10 +959,11 @@ impl FunctionChecker<'_> {
         let cond = self.expr(cond)?;
 
         if self.under(&cond.ty) != Type::Bool {
-            self.error(
+            self.error(Code::NotBool, 
                 format!("condition must be bool, found {}", cond.ty),
                 cond.span,
-            );
+            )
+            .types(Type::Bool, &cond.ty);
             return None;
         }
 
@@ -1020,7 +1045,7 @@ impl FunctionChecker<'_> {
         if expected.len() != found.len() {
             let plural = if expected.len() == 1 { "" } else { "s" };
 
-            self.error(
+            self.error(Code::Count, 
                 format!(
                     "{what} expects {} {noun}{plural}, found {}",
                     expected.len(),
@@ -1035,7 +1060,12 @@ impl FunctionChecker<'_> {
 
         for (expected, (found, span, literal)) in expected.iter().zip(found) {
             if !self.assignable(found, *literal, expected) {
-                self.error(format!("expected {expected}, found {found}"), *span);
+                let convertible = self.types.convertible(found, expected);
+                let error = self.error(Code::Mismatch, format!("expected {expected}, found {found}"), *span);
+                error.types(expected, found);
+                if convertible {
+                    error.help(format!("convert it: `{expected}(...)`"));
+                }
                 ok = false;
             }
         }
@@ -1048,14 +1078,20 @@ impl FunctionChecker<'_> {
 
         let Some(&func) = self.functions_by_name.get(name) else {
             if self.find_local(name).is_some() {
-                self.error(format!("`{name}` is a variable, not a function"), call.callee.span);
+                self.error(Code::WrongKindOfName, format!("`{name}` is a variable, not a function"), call.callee.span);
             } else if self.is_type_name(name) {
-                self.error(
+                self.error(Code::WrongKindOfName, 
                     format!("`{name}` is a type; it can't be called here"),
                     call.callee.span,
                 );
             } else {
-                self.error(format!("unknown function `{name}`"), call.callee.span);
+                let suggestion =
+                    suggest(name, self.functions_by_name.keys().copied()).map(str::to_string);
+                let error =
+                    self.error(Code::UnknownFunction, format!("unknown function `{name}`"), call.callee.span);
+                if let Some(suggestion) = suggestion {
+                    error.help(format!("did you mean `{suggestion}`?"));
+                }
             }
 
             return None;
@@ -1089,10 +1125,20 @@ impl FunctionChecker<'_> {
         let key = (receiver.ty.clone(), method.name.clone());
 
         let Some(&func) = self.methods.get(&key) else {
-            self.error(
+            let methods = self
+                .methods
+                .keys()
+                .filter(|(ty, _)| *ty == receiver.ty)
+                .map(|(_, name)| name.as_str());
+            let suggestion = suggest(&method.name, methods).map(str::to_string);
+            let error = self.error(
+                Code::UnknownMethod,
                 format!("{} has no method `{}`", receiver.ty, method.name),
                 method.span,
             );
+            if let Some(suggestion) = suggestion {
+                error.help(format!("did you mean `{suggestion}`?"));
+            }
             return None;
         };
 
@@ -1125,13 +1171,14 @@ impl FunctionChecker<'_> {
                     ast::ExprKind::MethodCall { method, .. } => method.name.clone(),
                     _ => unreachable!(),
                 };
-                self.error(
+                self.error(Code::MultipleValues, 
                     format!(
                         "`{name}` returns {} values, but one value is expected here",
                         returns.len()
                     ),
                     span,
-                );
+                )
+                .help("assign the results to variables first: `a, b = f(...)`");
                 return None;
             };
 
@@ -1151,10 +1198,15 @@ impl FunctionChecker<'_> {
                 let id = self.lookup(ident)?;
 
                 if !self.assigned.contains(&id) {
-                    self.error(
+                    self.error(Code::UseBeforeAssign, 
                         format!("`{}` is used before it is assigned", ident.name),
                         ident.span,
-                    );
+                    )
+                    .help(format!(
+                        "assign `{}` on every path before this; assignments inside a loop \
+                         don't count after it",
+                        ident.name
+                    ));
                     return None;
                 }
 
@@ -1190,7 +1242,7 @@ impl FunctionChecker<'_> {
                     (BinOp::Eq | BinOp::Ne, Some((_, Type::I32 | Type::Bool))) => Type::Bool,
 
                     (op, _) => {
-                        self.error(
+                        self.error(Code::BadOperands, 
                             format!("cannot apply `{}` to {} and {}", op.as_str(), lhs.ty, rhs.ty),
                             span,
                         );
@@ -1224,7 +1276,7 @@ impl FunctionChecker<'_> {
                 }
 
                 let Some(first) = checked.first() else {
-                    self.error(
+                    self.error(Code::EmptyArray, 
                         "the element type of an empty array can't be inferred; \
                          use a repeat like `[0; 0]`",
                         span,
@@ -1236,7 +1288,8 @@ impl FunctionChecker<'_> {
 
                 for other in &checked[1..] {
                     if other.ty != elem {
-                        self.error(format!("expected {elem}, found {}", other.ty), other.span);
+                        self.error(Code::Mismatch, format!("expected {elem}, found {}", other.ty), other.span)
+                            .types(&elem, &other.ty);
                         ok = false;
                     }
                 }
@@ -1260,7 +1313,7 @@ impl FunctionChecker<'_> {
                 let base = self.expr(base)?;
 
                 let Type::Array(elem, len) = self.under(&base.ty) else {
-                    self.error(format!("cannot index into a value of type {}", base.ty), base.span);
+                    self.error(Code::NotIndexable, format!("cannot index into a value of type {}", base.ty), base.span);
                     return None;
                 };
 
@@ -1313,12 +1366,12 @@ impl FunctionChecker<'_> {
 
         let [arg] = &call.args[..] else {
             if matches!(target, Type::Struct(..)) {
-                self.error(
+                self.error(Code::StructFields, 
                     format!("struct `{name}` is built with named fields: `{name}(field: value, ...)`"),
                     call.callee.span,
                 );
             } else {
-                self.error(format!("a conversion to `{name}` takes one value"), span);
+                self.error(Code::BadConversion, format!("a conversion to `{name}` takes one value"), span);
             }
             return None;
         };
@@ -1326,7 +1379,7 @@ impl FunctionChecker<'_> {
         let value = self.expr(arg)?;
 
         if !self.types.convertible(&value.ty, &target) {
-            self.error(format!("cannot convert {} to {target}", value.ty), value.span);
+            self.error(Code::BadConversion, format!("cannot convert {} to {target}", value.ty), value.span);
             return None;
         }
 
@@ -1344,7 +1397,7 @@ impl FunctionChecker<'_> {
         span: Span,
     ) -> Option<hir::Expr> {
         let Some(Type::Struct(id, _)) = self.types.by_name.get(&name.name).cloned() else {
-            self.error(format!("unknown struct `{}`", name.name), name.span);
+            self.error(Code::UnknownType, format!("unknown struct `{}`", name.name), name.span);
             return None;
         };
 
@@ -1357,13 +1410,13 @@ impl FunctionChecker<'_> {
             let value = self.expr(value);
 
             let Some(index) = def.field_index(&field.name) else {
-                self.error(format!("{} has no field `{}`", def.name, field.name), field.span);
+                self.error(Code::UnknownField, format!("{} has no field `{}`", def.name, field.name), field.span);
                 ok = false;
                 continue;
             };
 
             if values[index].is_some() {
-                self.error(format!("field `{}` is given more than once", field.name), field.span);
+                self.error(Code::StructFields, format!("field `{}` is given more than once", field.name), field.span);
                 ok = false;
                 continue;
             }
@@ -1375,7 +1428,8 @@ impl FunctionChecker<'_> {
 
             let expected = &def.fields[index].ty;
             if !self.assignable(&value.ty, is_literal(&value), expected) {
-                self.error(format!("expected {expected}, found {}", value.ty), value.span);
+                self.error(Code::Mismatch, format!("expected {expected}, found {}", value.ty), value.span)
+                    .types(expected, &value.ty);
                 ok = false;
             }
 
@@ -1391,7 +1445,7 @@ impl FunctionChecker<'_> {
             .collect::<Vec<_>>();
 
         if ok && !missing.is_empty() {
-            self.error(
+            self.error(Code::StructFields, 
                 format!(
                     "missing field{} {}",
                     if missing.len() == 1 { "" } else { "s" },
@@ -1418,13 +1472,13 @@ impl FunctionChecker<'_> {
         let index = self.expr(index)?;
 
         if self.under(&index.ty) != Type::I32 {
-            self.error(format!("array index must be i32, found {}", index.ty), index.span);
+            self.error(Code::BadIndexType, format!("array index must be i32, found {}", index.ty), index.span);
             return None;
         }
 
         if let hir::ExprKind::Int(value) = index.kind {
             if value < 0 || value as u32 >= len {
-                self.error(
+                self.error(Code::IndexOutOfBounds, 
                     format!("index {value} is out of bounds for an array of length {len}"),
                     index.span,
                 );
@@ -1878,6 +1932,64 @@ mod tests {
     fn named_type_containing_itself() {
         let errors = check_source("type A [A; 2] fn main(): i32 { return 0 }").unwrap_err();
         assert_eq!(errors[0].message, "type `A` contains itself, so it would have infinite size");
+    }
+
+    /// The code, help and expected/found types of the single error in
+    /// `source`.
+    fn diagnostic(source: &str) -> (Code, Option<String>, Option<(String, String)>) {
+        let errors = check_source(source).expect_err("expected an error");
+        assert_eq!(errors.len(), 1, "expected one error, got {errors:#?}");
+        let e = &errors[0];
+        let types = e.expected.clone().zip(e.found.clone());
+        (e.code, e.help.clone(), types)
+    }
+
+    #[test]
+    fn mismatch_suggests_conversion() {
+        let source = format!(
+            "{NODE_ID} fn main(): i32 {{ id: NodeId i: i32 i = 1 id = i return 0 }}"
+        );
+        let (code, help, types) = diagnostic(&source);
+        assert_eq!(code, Code::Mismatch);
+        assert_eq!(help.as_deref(), Some("convert it: `NodeId(...)`"));
+        assert_eq!(types, Some(("NodeId".to_string(), "i32".to_string())));
+    }
+
+    #[test]
+    fn misspelled_names_get_suggestions() {
+        let cases = [
+            ("fn main(): i32 { total: i32 total = 1 return totla }", Code::UnknownVariable, "total"),
+            ("fn helper(): i32 { return 1 } fn main(): i32 { return hlper() }", Code::UnknownFunction, "helper"),
+            ("type Point struct { x: i32 } fn f(p: Piont) {} fn main(): i32 { return 0 }", Code::UnknownType, "Point"),
+            (
+                "type P struct { value: i32 } fn main(): i32 { p: P p = P(value: 1) return p.valeu }",
+                Code::UnknownField,
+                "value",
+            ),
+            (
+                "type P struct { x: i32 } fn P.bump() { this.x = 1 }
+                 fn main(): i32 { p: P p = P(x: 1) p.bmup() return 0 }",
+                Code::UnknownMethod,
+                "bump",
+            ),
+        ];
+
+        for (source, expected_code, suggestion) in cases {
+            let (code, help, _) = diagnostic(source);
+            assert_eq!(code, expected_code, "{source}");
+            assert_eq!(help, Some(format!("did you mean `{suggestion}`?")), "{source}");
+        }
+    }
+
+    #[test]
+    fn flow_errors_have_codes_and_help() {
+        let (code, help, _) = diagnostic("fn main(): i32 { x: i32 return x }");
+        assert_eq!(code, Code::UseBeforeAssign);
+        assert!(help.is_some());
+
+        let (code, help, _) = diagnostic("fn main(): i32 { if true { return 1 } }");
+        assert_eq!(code, Code::MissingReturn);
+        assert!(help.is_some());
     }
 
     #[test]

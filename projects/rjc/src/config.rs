@@ -7,6 +7,10 @@ pub struct Config {
     pub emit_hir: bool,
     pub emit_ir: bool,
     pub emit_llvm: bool,
+    /// Report diagnostics as JSON on stdout.
+    pub json: bool,
+    /// Print the explanation of an error code and exit.
+    pub explain: String,
     pub file_name: String,
 }
 
@@ -47,9 +51,20 @@ impl Config {
                 "Emit RJ IR",
             );
 
+            ap.refer(&mut config.json).add_option(
+                &["--json"],
+                argparse::StoreTrue,
+                "Report diagnostics as JSON on stdout",
+            );
+
+            ap.refer(&mut config.explain).add_option(
+                &["--explain"],
+                argparse::Store,
+                "Explain an error code, like E0200",
+            );
+
             ap.refer(&mut config.file_name)
-                .add_argument("file", argparse::Store, "File to parse")
-                .required();
+                .add_argument("file", argparse::Store, "File to compile");
 
             ap.parse_args_or_exit();
         }

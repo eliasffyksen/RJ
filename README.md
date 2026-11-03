@@ -155,6 +155,22 @@ destination variables' storage as those pointers. Functions are emitted as
 value using the Linux x86-64 `exit_group` syscall, so programs need neither libc
 nor a dynamic linker.
 
+## Diagnostics
+
+Every error has a stable code, and many come with a suggested fix:
+
+```
+test.rj:9:8: error[E0200]: expected NodeId, found i32
+    id = i
+         ~
+  help: convert it: `NodeId(...)`
+```
+
+- `rjc --json FILE` reports diagnostics as JSON on stdout (code, message,
+  span with line and column, help, and expected/found types for mismatches),
+  for editors, tools and LLMs.
+- `rjc --explain E0200` explains an error code.
+
 ## Testing
 
 ```sh

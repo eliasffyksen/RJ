@@ -8,7 +8,7 @@ use pest::{error::InputLocation, iterators::Pair, Parser as _};
 use pest_derive::Parser;
 
 use super::ast::*;
-use crate::diagnostic::{Error, Span};
+use crate::diagnostic::{Code, Error, Span};
 
 #[derive(Parser)]
 #[grammar = "syntax/rj.pest"]
@@ -115,7 +115,7 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
         .to_string()
     });
 
-    Error::new(error.variant.message(), span)
+    Error::new(Code::Syntax, error.variant.message(), span)
 }
 
 fn span(pair: &Pair<Rule>) -> Span {
@@ -195,7 +195,7 @@ fn ty(pair: Pair<Rule>) -> Result<TypeExpr> {
 fn array_len(pair: Pair<Rule>) -> Result<u32> {
     pair.as_str()
         .parse()
-        .map_err(|_| Error::new("array length is too large", span(&pair)))
+        .map_err(|_| Error::new(Code::ArrayLenTooLarge, "array length is too large", span(&pair)))
 }
 
 fn var_decl(pair: Pair<Rule>) -> Result<VarDecl> {
@@ -291,7 +291,7 @@ fn stmt(pair: Pair<Rule>) -> Result<Stmt> {
             let expr = expr(pair.into_inner().next().unwrap())?;
 
             if !matches!(expr.kind, ExprKind::MethodCall { .. }) {
-                return Err(Error::new(
+                return Err(Error::new(Code::UnusedValue, 
                     "only calls can be used as statements; this value is unused",
                     expr.span,
                 ));
@@ -337,7 +337,7 @@ fn expr(mut pair: Pair<Rule>) -> Result<Expr> {
             let value = pair
                 .as_str()
                 .parse()
-                .map_err(|_| Error::new("integer literal does not fit in i32", span))?;
+                .map_err(|_| Error::new(Code::IntTooLarge, "integer literal does not fit in i32", span))?;
 
             ExprKind::Int(value)
         }

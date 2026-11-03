@@ -1,5 +1,7 @@
 use std::{fs, io, process::ExitCode};
 
+use diagnostic::{Code, Error};
+
 mod check;
 mod codegen;
 mod config;
@@ -12,18 +14,41 @@ mod types;
 fn main() -> ExitCode {
     let config = config::Config::new();
 
+    if !config.explain.is_empty() {
+        return explain(&config.explain);
+    }
+
+    if config.file_name.is_empty() {
+        eprintln!("error: no input file (see --help)");
+        return ExitCode::FAILURE;
+    }
+
     let source = match fs::read_to_string(&config.file_name) {
         Ok(source) => source,
         Err(err) => {
-            eprintln!("{}: error: {err}", config.file_name);
+            if config.json {
+                println!("{{\"diagnostics\":[],\"error\":\"cannot read {}: {err}\"}}", config.file_name);
+            } else {
+                eprintln!("{}: error: {err}", config.file_name);
+            }
             return ExitCode::FAILURE;
+        }
+    };
+
+    let report = |errors: &[Error]| {
+        if config.json {
+            println!("{}", diagnostic::to_json(errors, &config.file_name, &source));
+        } else {
+            for err in errors {
+                eprint!("{}", err.render(&config.file_name, &source));
+            }
         }
     };
 
     let module = match syntax::parse(&source) {
         Ok(module) => module,
         Err(err) => {
-            eprint!("{}", err.render(&config.file_name, &source));
+            report(&[err]);
             return ExitCode::FAILURE;
         }
     };
@@ -42,12 +67,14 @@ fn main() -> ExitCode {
     let program = match check::check(&module) {
         Ok(program) => program,
         Err(errors) => {
-            for err in errors {
-                eprint!("{}", err.render(&config.file_name, &source));
-            }
+            report(&errors);
             return ExitCode::FAILURE;
         }
     };
+
+    if config.json {
+        report(&[]);
+    }
 
     if config.emit_hir {
         println!("{program:#?}");
@@ -64,4 +91,17 @@ fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+fn explain(id: &str) -> ExitCode {
+    match Code::from_id(id) {
+        Some(code) => {
+            println!("{}: {}\n\n{}", code.id(), code.title(), code.explanation());
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("error: unknown error code `{id}`");
+            ExitCode::FAILURE
+        }
+    }
 }
