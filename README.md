@@ -171,6 +171,28 @@ test.rj:9:8: error[E0200]: expected NodeId, found i32
   for editors, tools and LLMs.
 - `rjc --explain E0200` explains an error code.
 
+### Examples
+
+`example` declarations are checked every time a program is compiled, by
+running them with the IR interpreter:
+
+```
+fn add(a: i32, b: i32): i32 { return a - b }
+
+example add(2, 3) == 5
+```
+
+```
+test.rj:3:1: error[E0500]: example failed
+  example add(2, 3) == 5
+  ~~~~~~~~~~~~~~~~~~~~~~
+  help: left side is `-1`, right side is `5`
+```
+
+An example is a comparison of any two values (arrays and structs included)
+or a bool expression. Examples that index out of bounds or run too long are
+reported too.
+
 ## Testing
 
 ```sh

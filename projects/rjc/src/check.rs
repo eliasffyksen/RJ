@@ -169,6 +169,25 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
         })
         .collect::<Vec<_>>();
 
+    let examples = module
+        .examples
+        .iter()
+        .map(|example| {
+            FunctionChecker {
+                types: &types,
+                signatures: &signatures,
+                functions_by_name: &functions_by_name,
+                methods: &methods,
+                errors: &mut errors,
+                returns: &[],
+                locals: vec![],
+                scopes: vec![HashMap::new()],
+                assigned: HashSet::new(),
+            }
+            .example(example)
+        })
+        .collect::<Vec<_>>();
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -176,6 +195,11 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
     let mut functions = functions.into_iter().map(Option::unwrap).collect::<Vec<_>>();
     for function in &mut functions {
         types.erase_function(function);
+    }
+
+    let mut examples = examples.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+    for example in &mut examples {
+        types.erase_function(&mut example.function);
     }
 
     let structs = types
@@ -198,6 +222,7 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
         structs,
         functions,
         main: main.unwrap(),
+        examples,
     })
 }
 
@@ -626,6 +651,80 @@ impl FunctionChecker<'_> {
             locals: self.locals,
             body,
             span: function.span,
+        })
+    }
+
+    /// Checks an `example` as a function returning both sides of a
+    /// comparison, or a single bool.
+    fn example(mut self, example: &ast::Example) -> Option<hir::Example> {
+        let span = example.span;
+
+        let (values, returns, compare) = match &example.expr.kind {
+            // Examples may compare any two values, including arrays and
+            // structs.
+            ast::ExprKind::Binary {
+                op: op @ (BinOp::Eq | BinOp::Ne),
+                lhs,
+                rhs,
+            } => {
+                let lhs = self.expr(lhs);
+                let rhs = self.expr(rhs);
+                let (lhs, rhs) = (lhs?, rhs?);
+
+                let comparable = lhs.ty == rhs.ty
+                    || (is_literal(&rhs) && self.adapts(&rhs.ty, &lhs.ty))
+                    || (is_literal(&lhs) && self.adapts(&lhs.ty, &rhs.ty));
+
+                if !comparable {
+                    self.error(
+                        Code::Mismatch,
+                        format!("cannot compare {} with {}", lhs.ty, rhs.ty),
+                        example.expr.span,
+                    )
+                    .types(&lhs.ty, &rhs.ty);
+                    return None;
+                }
+
+                let types = vec![lhs.ty.clone(), rhs.ty.clone()];
+                (vec![hir::Value::Single(lhs), hir::Value::Single(rhs)], types, Some(*op))
+            }
+
+            _ => {
+                let expr = self.expr(&example.expr)?;
+
+                if self.under(&expr.ty) != Type::Bool {
+                    self.error(
+                        Code::NotBool,
+                        format!("an example must be a comparison or a bool, found {}", expr.ty),
+                        expr.span,
+                    )
+                    .help("compare the result with what you expect: `f(x) == y`");
+                    return None;
+                }
+
+                (vec![hir::Value::Single(expr)], vec![Type::Bool], None)
+            }
+        };
+
+        let function = hir::Function {
+            name: "example".to_string(),
+            is_method: false,
+            params: vec![],
+            returns,
+            locals: self.locals,
+            body: hir::Block {
+                stmts: vec![hir::Stmt {
+                    kind: hir::StmtKind::Return(values),
+                    span,
+                }],
+            },
+            span,
+        };
+
+        Some(hir::Example {
+            function,
+            compare,
+            span,
         })
     }
 

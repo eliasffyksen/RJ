@@ -16,6 +16,15 @@ use crate::diagnostic::Span;
 pub struct Module {
     pub types: Vec<TypeDef>,
     pub functions: Vec<Function>,
+    pub examples: Vec<Example>,
+}
+
+/// `example expr`: a bool expression, or a comparison of any two values,
+/// that must hold.
+#[derive(Debug)]
+pub struct Example {
+    pub expr: Expr,
+    pub span: Span,
 }
 
 /// `type Name struct { ... }` or `type Name <type>`.

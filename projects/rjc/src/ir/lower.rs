@@ -11,7 +11,16 @@ pub fn lower(program: &hir::Program) -> Program {
             .functions
             .iter()
             .enumerate()
-            .map(|(i, function)| lower_function(program, &writes_this, i, function))
+            .map(|(i, function)| lower_function(program, &writes_this, writes_this[i], function))
+            .collect(),
+        examples: program
+            .examples
+            .iter()
+            .map(|example| Example {
+                function: lower_function(program, &writes_this, false, &example.function),
+                compare: example.compare,
+                span: example.span,
+            })
             .collect(),
         structs: program.structs.clone(),
         main: program.main,
@@ -21,7 +30,7 @@ pub fn lower(program: &hir::Program) -> Program {
 fn lower_function(
     program: &hir::Program,
     writes_this: &[bool],
-    index: usize,
+    writes_own_this: bool,
     function: &hir::Function,
 ) -> Function {
     // HIR locals keep their ids; return slots and temporaries come after.
@@ -58,7 +67,7 @@ fn lower_function(
     // A method that changes `this` hands it back as an extra, last return
     // value, which the caller writes back to the receiver. Every return
     // writes it from `this`, so `this` comes out as an in/out parameter.
-    if writes_this[index] {
+    if writes_own_this {
         let this = function.params[0];
         let ty = builder.locals[this.0].ty.clone();
         let slot = builder.new_local(ty, LocalKind::Return);

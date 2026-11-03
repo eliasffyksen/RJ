@@ -55,6 +55,9 @@ pub enum Code {
     // Program
     Main,
     InfiniteType,
+    // Examples
+    ExampleFailed,
+    ExampleTrapped,
 }
 
 impl Code {
@@ -89,6 +92,8 @@ impl Code {
         Code::IndexOutOfBounds,
         Code::Main,
         Code::InfiniteType,
+        Code::ExampleFailed,
+        Code::ExampleTrapped,
     ];
 
     pub fn id(self) -> &'static str {
@@ -123,6 +128,8 @@ impl Code {
             Code::IndexOutOfBounds => "E0304",
             Code::Main => "E0400",
             Code::InfiniteType => "E0401",
+            Code::ExampleFailed => "E0500",
+            Code::ExampleTrapped => "E0501",
         }
     }
 
@@ -162,6 +169,8 @@ impl Code {
             Code::IndexOutOfBounds => "index out of bounds",
             Code::Main => "invalid `main`",
             Code::InfiniteType => "type contains itself",
+            Code::ExampleFailed => "example failed",
+            Code::ExampleTrapped => "example trapped",
         }
     }
 
@@ -262,6 +271,15 @@ impl Code {
                  length - 1."
             }
             Code::Main => "Programs need a `fn main(): i32`; its result is the exit code.",
+            Code::ExampleFailed => {
+                "An `example` didn't hold when the compiler ran it. For a comparison \
+                 `example f(x) == y`, the help shows both sides' values; either the \
+                 function or the expected value is wrong."
+            }
+            Code::ExampleTrapped => {
+                "Running an `example` stopped with an error, such as an index out of \
+                 bounds, or took too many steps (a loop that may never end)."
+            }
             Code::InfiniteType => {
                 "A type can't contain itself by value, directly or through arrays \
                  and other types, because it would have infinite size. Refer to \

@@ -6,6 +6,7 @@ mod check;
 mod codegen;
 mod config;
 mod diagnostic;
+mod examples;
 mod hir;
 mod ir;
 mod syntax;
@@ -72,15 +73,21 @@ fn main() -> ExitCode {
         }
     };
 
-    if config.json {
-        report(&[]);
-    }
-
     if config.emit_hir {
         println!("{program:#?}");
     }
 
     let program = ir::lower(&program);
+
+    let failed = examples::run(&program);
+    if !failed.is_empty() {
+        report(&failed);
+        return ExitCode::FAILURE;
+    }
+
+    if config.json {
+        report(&[]);
+    }
 
     if config.emit_ir {
         print!("{program}");

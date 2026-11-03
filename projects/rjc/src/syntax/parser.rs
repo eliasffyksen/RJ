@@ -24,17 +24,27 @@ pub fn parse(source: &str) -> Result<Module> {
 
     let mut types = vec![];
     let mut functions = vec![];
+    let mut examples = vec![];
 
     for pair in module.into_inner() {
         match pair.as_rule() {
             Rule::type_def => types.push(type_def(pair)?),
+            Rule::example_def => {
+                let span = span(&pair);
+                let expr = expr(pair.into_inner().next().unwrap())?;
+                examples.push(Example { expr, span });
+            }
             Rule::func => functions.push(function(pair)?),
             Rule::EOI => {}
             rule => unreachable!("unexpected {rule:?} in module"),
         }
     }
 
-    Ok(Module { types, functions })
+    Ok(Module {
+        types,
+        functions,
+        examples,
+    })
 }
 
 fn type_def(pair: Pair<Rule>) -> Result<TypeDef> {
@@ -90,6 +100,7 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::struct_lit => "struct",
             Rule::field_init => "field",
             Rule::type_def => "type definition",
+            Rule::example_def => "example",
             Rule::struct_type => "struct type",
             Rule::method_suffix => "method call",
             Rule::expr_stmt => "statement",

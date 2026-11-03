@@ -1,0 +1,45 @@
+// Examples are checked every time the program is compiled.
+
+type Point struct {
+  x: i32,
+  y: i32,
+}
+
+type Counter struct {
+  count: i32,
+}
+
+fn add(a: i32, b: i32): i32 {
+  return a + b
+}
+
+fn moved(p: Point, dx: i32): Point {
+  p.x = p.x + dx
+  return p
+}
+
+fn Counter.bumped(): Counter {
+  this.count = this.count + 1
+  return this
+}
+
+fn Counter.get(): i32 {
+  return this.count
+}
+
+fn reversed(a: [i32; 3]): [i32; 3] {
+  a[0], a[2] = a[2], a[0]
+  return a
+}
+
+example add(2, 3) == 5
+example add(-1, 1) == 0
+example add(2, 2) != 5
+example add(1, 1) > 1
+example moved(Point(x: 1, y: 2), 3) == Point(x: 4, y: 2)
+example Counter(count: 1).bumped().get() == 2
+example reversed([1, 2, 3]) == [3, 2, 1]
+
+fn main(): i32 {
+  return add(1, -1)
+}

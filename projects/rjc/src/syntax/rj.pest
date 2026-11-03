@@ -13,7 +13,7 @@ ret_type = {
 }
 
 keyword = @{
-  ("fn" | "type" | "struct" | "this" | "if" | "else" | "while" | "return" | "true" | "false")
+  ("fn" | "type" | "struct" | "this" | "example" | "if" | "else" | "while" | "return" | "true" | "false")
   ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -207,6 +207,11 @@ struct_type = {
   ~ "}"
 }
 
+// `example add(2, 3) == 5`, checked when the program is compiled.
+example_def = {
+  "example" ~ expr_elm
+}
+
 module = {
-  SOI ~ (type_def | func)* ~ EOI
+  SOI ~ (type_def | func | example_def)* ~ EOI
 }

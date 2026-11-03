@@ -1,5 +1,12 @@
-//! A tiny IR interpreter, used by tests to check that lowering preserves
-//! the meaning of programs independently of any backend.
+//! An IR interpreter. It runs `example`s at compile time, and tests use it
+//! to check that lowering preserves the meaning of programs independently
+//! of any backend.
+//!
+//! Errors in the running program (an index out of bounds, or running out of
+//! steps) are returned as [`Trap`]s. Anything else that goes wrong is a bug
+//! in the compiler and panics.
+
+use std::fmt;
 
 use super::*;
 
@@ -11,6 +18,24 @@ pub enum Value {
     Struct(Vec<Value>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Trap {
+    IndexOutOfBounds { index: i32, len: usize },
+    /// The step budget ran out, probably in a loop that never ends.
+    OutOfSteps,
+}
+
+impl fmt::Display for Trap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Trap::IndexOutOfBounds { index, len } => {
+                write!(f, "index out of bounds: {index} for length {len}")
+            }
+            Trap::OutOfSteps => f.write_str("ran out of steps; a loop may never end"),
+        }
+    }
+}
+
 /// An evaluated path step.
 enum Step {
     Index(Value),
@@ -18,14 +43,14 @@ enum Step {
 }
 
 /// The part of `value` that `path` leads to.
-fn part<'v>(value: &'v mut Value, path: &[Step]) -> &'v mut Value {
+fn part<'v>(value: &'v mut Value, path: &[Step]) -> Result<&'v mut Value, Trap> {
     let Some((step, rest)) = path.split_first() else {
-        return value;
+        return Ok(value);
     };
 
     let inner = match (step, value) {
         (Step::Index(index), Value::Array(elems)) => {
-            let i = array_index(elems, index.clone());
+            let i = array_index(elems, index)?;
             &mut elems[i]
         }
         (Step::Field(field), Value::Struct(fields)) => &mut fields[*field],
@@ -35,144 +60,212 @@ fn part<'v>(value: &'v mut Value, path: &[Step]) -> &'v mut Value {
     part(inner, rest)
 }
 
-fn array_index(array: &[Value], index: Value) -> usize {
-    match index {
-        Value::Int(i) if i >= 0 && (i as usize) < array.len() => i as usize,
-        Value::Int(i) => panic!("index out of bounds: {i} for length {}", array.len()),
-        other => panic!("array index {other:?}"),
+fn array_index(array: &[Value], index: &Value) -> Result<usize, Trap> {
+    match *index {
+        Value::Int(i) if i >= 0 && (i as usize) < array.len() => Ok(i as usize),
+        Value::Int(index) => Err(Trap::IndexOutOfBounds {
+            index,
+            len: array.len(),
+        }),
+        ref other => panic!("array index {other:?}"),
     }
 }
 
-/// Runs `main` and returns its exit code.
+/// Runs `main` and returns its exit code. Panics on a trap.
+#[cfg(test)]
 pub fn run(program: &Program) -> i32 {
-    match call(program, program.main, vec![])[..] {
-        [Value::Int(code)] => code,
-        ref other => panic!("main returned {other:?}"),
+    let mut machine = Machine::new(program, u64::MAX);
+
+    match machine.call(program.main, vec![]) {
+        Ok(values) => match values[..] {
+            [Value::Int(code)] => code,
+            ref other => panic!("main returned {other:?}"),
+        },
+        Err(trap) => panic!("{trap}"),
     }
 }
 
-pub fn call(program: &Program, func: FuncId, args: Vec<Value>) -> Vec<Value> {
-    let function = program.function(func);
-    let mut locals: Vec<Option<Value>> = vec![None; function.locals.len()];
+pub struct Machine<'p> {
+    program: &'p Program,
+    steps_left: u64,
+}
 
-    assert_eq!(args.len(), function.params.len());
-    for (param, arg) in function.params.iter().zip(args) {
-        locals[param.0] = Some(arg);
+impl<'p> Machine<'p> {
+    /// A machine that stops with [`Trap::OutOfSteps`] after `steps`
+    /// statements.
+    pub fn new(program: &'p Program, steps: u64) -> Self {
+        Machine {
+            program,
+            steps_left: steps,
+        }
     }
 
-    let read = |locals: &[Option<Value>], operand: &Operand| match operand {
-        Operand::Local(id) => locals[id.0]
-            .clone()
-            .unwrap_or_else(|| panic!("{}: read of unassigned local {id}", function.name)),
-        Operand::Int(value) => Value::Int(*value),
-        Operand::Bool(value) => Value::Bool(*value),
-    };
+    pub fn call(&mut self, func: FuncId, args: Vec<Value>) -> Result<Vec<Value>, Trap> {
+        let program = self.program;
+        self.run(program.function(func), args)
+    }
 
-    let eval_path = |locals: &[Option<Value>], path: &[Elem]| {
-        path.iter()
-            .map(|elem| match elem {
-                Elem::Index(index) => Step::Index(read(locals, index)),
-                Elem::Field(field) => Step::Field(*field),
-            })
-            .collect::<Vec<_>>()
-    };
+    fn step(&mut self) -> Result<(), Trap> {
+        if self.steps_left == 0 {
+            return Err(Trap::OutOfSteps);
+        }
+        self.steps_left -= 1;
+        Ok(())
+    }
 
-    let mut block = BlockId(0);
+    /// Runs `function`, which may be outside the program (an example), with
+    /// calls going to the program's functions.
+    pub fn run(&mut self, function: &Function, args: Vec<Value>) -> Result<Vec<Value>, Trap> {
+        let mut locals: Vec<Option<Value>> = vec![None; function.locals.len()];
 
-    loop {
-        let data = function.block(block);
+        assert_eq!(args.len(), function.params.len());
+        for (param, arg) in function.params.iter().zip(args) {
+            locals[param.0] = Some(arg);
+        }
 
-        for stmt in &data.stmts {
-            match stmt {
-                Stmt::Assign { dest, value } => {
-                    let value = match value {
-                        Rvalue::Use(operand) => read(&locals, operand),
-                        Rvalue::Binary(op, lhs, rhs) => {
-                            binary(*op, read(&locals, lhs), read(&locals, rhs))
-                        }
-                        Rvalue::Array(elems) => {
-                            Value::Array(elems.iter().map(|e| read(&locals, e)).collect())
-                        }
-                        Rvalue::Repeat(value, len) => {
-                            Value::Array(vec![read(&locals, value); *len as usize])
-                        }
-                        Rvalue::Struct(fields) => {
-                            Value::Struct(fields.iter().map(|e| read(&locals, e)).collect())
-                        }
-                        Rvalue::Read(local, path) => {
-                            let steps = eval_path(&locals, path);
-                            let mut value = read(&locals, &Operand::Local(*local));
-                            part(&mut value, &steps).clone()
-                        }
-                    };
-                    locals[dest.0] = Some(value);
-                }
+        let read = |locals: &[Option<Value>], operand: &Operand| match operand {
+            Operand::Local(id) => locals[id.0]
+                .clone()
+                .unwrap_or_else(|| panic!("{}: read of unassigned local {id}", function.name)),
+            Operand::Int(value) => Value::Int(*value),
+            Operand::Bool(value) => Value::Bool(*value),
+        };
 
-                Stmt::SetPlace { local, path, value } => {
-                    let steps = eval_path(&locals, path);
-                    let value = read(&locals, value);
-                    let Some(target) = &mut locals[local.0] else {
-                        panic!("{}: partial write to unassigned local {local}", function.name);
-                    };
-                    *part(target, &steps) = value;
-                }
+        let eval_path = |locals: &[Option<Value>], path: &[Elem]| {
+            path.iter()
+                .map(|elem| match elem {
+                    Elem::Index(index) => Step::Index(read(locals, index)),
+                    Elem::Field(field) => Step::Field(*field),
+                })
+                .collect::<Vec<_>>()
+        };
 
-                Stmt::Call { func, args, dests } => {
-                    let args = args
-                        .iter()
-                        .map(|arg| match arg {
-                            CallArg::Value(operand) => read(&locals, operand),
-                            CallArg::Place(place) => {
-                                let steps = eval_path(&locals, &place.path);
-                                let mut value = read(&locals, &Operand::Local(place.local));
-                                part(&mut value, &steps).clone()
+        let read_place = |locals: &[Option<Value>], local: LocalId, path: &[Elem]| {
+            let steps = eval_path(locals, path);
+            let mut value = read(locals, &Operand::Local(local));
+            Ok(part(&mut value, &steps)?.clone())
+        };
+
+        let mut block = BlockId(0);
+
+        loop {
+            let data = function.block(block);
+
+            for stmt in &data.stmts {
+                self.step()?;
+
+                match stmt {
+                    Stmt::Assign { dest, value } => {
+                        let value = match value {
+                            Rvalue::Use(operand) => read(&locals, operand),
+                            Rvalue::Binary(op, lhs, rhs) => {
+                                binary(*op, read(&locals, lhs), read(&locals, rhs))
                             }
-                        })
-                        .collect();
+                            Rvalue::Array(elems) => {
+                                Value::Array(elems.iter().map(|e| read(&locals, e)).collect())
+                            }
+                            Rvalue::Repeat(value, len) => {
+                                Value::Array(vec![read(&locals, value); *len as usize])
+                            }
+                            Rvalue::Struct(fields) => {
+                                Value::Struct(fields.iter().map(|e| read(&locals, e)).collect())
+                            }
+                            Rvalue::Read(local, path) => read_place(&locals, *local, path)?,
+                        };
+                        locals[dest.0] = Some(value);
+                    }
 
-                    // Destination indexes are evaluated before the call.
-                    let dest_steps = dests
-                        .iter()
-                        .map(|dest| eval_path(&locals, &dest.path))
-                        .collect::<Vec<_>>();
+                    Stmt::SetPlace { local, path, value } => {
+                        let steps = eval_path(&locals, path);
+                        let value = read(&locals, value);
+                        let Some(target) = &mut locals[local.0] else {
+                            panic!("{}: partial write to unassigned local {local}", function.name);
+                        };
+                        *part(target, &steps)? = value;
+                    }
 
-                    let results = call(program, *func, args);
+                    Stmt::Call { func, args, dests } => {
+                        let mut values = vec![];
+                        for arg in args {
+                            values.push(match arg {
+                                CallArg::Value(operand) => read(&locals, operand),
+                                CallArg::Place(place) => {
+                                    read_place(&locals, place.local, &place.path)?
+                                }
+                            });
+                        }
 
-                    assert_eq!(results.len(), dests.len());
-                    for ((dest, steps), result) in dests.iter().zip(dest_steps).zip(results) {
-                        match &mut locals[dest.local.0] {
-                            Some(target) => *part(target, &steps) = result,
-                            target @ None if steps.is_empty() => *target = Some(result),
-                            None => panic!("partial write to unassigned local {}", dest.local),
+                        // Destination indexes are evaluated before the call.
+                        let dest_steps = dests
+                            .iter()
+                            .map(|dest| eval_path(&locals, &dest.path))
+                            .collect::<Vec<_>>();
+
+                        let results = self.call(*func, values)?;
+
+                        assert_eq!(results.len(), dests.len());
+                        for ((dest, steps), result) in dests.iter().zip(dest_steps).zip(results) {
+                            match &mut locals[dest.local.0] {
+                                Some(target) => *part(target, &steps)? = result,
+                                target @ None if steps.is_empty() => *target = Some(result),
+                                None => panic!("partial write to unassigned local {}", dest.local),
+                            }
                         }
                     }
                 }
             }
-        }
 
-        match &data.terminator {
-            Terminator::Goto(target) => block = *target,
+            self.step()?;
 
-            Terminator::Branch {
-                cond,
-                then_block,
-                else_block,
-            } => {
-                block = match read(&locals, cond) {
-                    Value::Bool(true) => *then_block,
-                    Value::Bool(false) => *else_block,
-                    other => panic!("branch on {other:?}"),
+            match &data.terminator {
+                Terminator::Goto(target) => block = *target,
+
+                Terminator::Branch {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
+                    block = match read(&locals, cond) {
+                        Value::Bool(true) => *then_block,
+                        Value::Bool(false) => *else_block,
+                        other => panic!("branch on {other:?}"),
+                    }
+                }
+
+                Terminator::Return => {
+                    return Ok(function
+                        .returns
+                        .iter()
+                        .map(|slot| read(&locals, &Operand::Local(*slot)))
+                        .collect());
                 }
             }
-
-            Terminator::Return => {
-                return function
-                    .returns
-                    .iter()
-                    .map(|slot| read(&locals, &Operand::Local(*slot)))
-                    .collect();
-            }
         }
+    }
+}
+
+/// `value` in RJ syntax, using `ty` for struct names and field names.
+pub fn format_value(value: &Value, ty: &Type, structs: &[StructDef]) -> String {
+    match (value, ty) {
+        (Value::Int(v), _) => v.to_string(),
+        (Value::Bool(v), _) => v.to_string(),
+        (Value::Array(elems), Type::Array(elem_ty, _)) => {
+            let elems = elems
+                .iter()
+                .map(|e| format_value(e, elem_ty, structs))
+                .collect::<Vec<_>>();
+            format!("[{}]", elems.join(", "))
+        }
+        (Value::Struct(fields), Type::Struct(id, name)) => {
+            let def = &structs[id.0];
+            let fields = fields
+                .iter()
+                .zip(&def.fields)
+                .map(|(v, f)| format!("{}: {}", f.name, format_value(v, &f.ty, structs)))
+                .collect::<Vec<_>>();
+            format!("{name}({})", fields.join(", "))
+        }
+        (value, ty) => panic!("value {value:?} does not match type {ty}"),
     }
 }
 
@@ -210,6 +303,9 @@ mod tests {
             let program = lower_source(&std::fs::read_to_string(&path).unwrap());
 
             assert_eq!(run(&program), 0, "{} exited with non-zero", path.display());
+
+            let failed = crate::examples::run(&program);
+            assert!(failed.is_empty(), "{}: {failed:#?}", path.display());
         }
     }
 

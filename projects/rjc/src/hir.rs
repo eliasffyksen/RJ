@@ -30,6 +30,16 @@ pub struct Program {
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
     pub main: FuncId,
+    pub examples: Vec<Example>,
+}
+
+/// An `example`, as a function without parameters that returns the two
+/// sides of a comparison (`compare` is set) or a single bool.
+#[derive(Debug)]
+pub struct Example {
+    pub function: Function,
+    pub compare: Option<BinOp>,
+    pub span: Span,
 }
 
 impl Program {

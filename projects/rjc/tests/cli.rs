@@ -77,3 +77,18 @@ fn explain() {
     assert!(!ok);
     assert!(stderr.contains("unknown error code"), "{stderr}");
 }
+
+#[test]
+fn failing_example_in_json() {
+    let path = source_file(
+        "example.rj",
+        "fn add(a: i32, b: i32): i32 { return a - b }\nexample add(2, 3) == 5\nfn main(): i32 { return 0 }\n",
+    );
+
+    let (ok, stdout, _) = rjc(&["--json", path.to_str().unwrap()]);
+
+    assert!(!ok);
+    assert!(stdout.contains(r#""code":"E0500""#), "{stdout}");
+    assert!(stdout.contains(r#""line":2"#), "{stdout}");
+    assert!(stdout.contains(r#""expected":"5","found":"-1""#), "{stdout}");
+}

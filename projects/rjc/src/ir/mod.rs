@@ -18,14 +18,16 @@
 #![allow(dead_code)]
 
 mod lower;
-#[cfg(test)]
-mod interp;
+pub mod interp;
 pub mod liveness;
 pub mod modes;
 
 use std::fmt;
 
-pub use crate::hir::{BinOp, FuncId, LocalId, StructDef, Type};
+pub use crate::{
+    diagnostic::Span,
+    hir::{BinOp, FuncId, LocalId, StructDef, Type},
+};
 pub use lower::lower;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,6 +38,17 @@ pub struct Program {
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
     pub main: FuncId,
+    /// Run by the compiler, never compiled to machine code.
+    pub examples: Vec<Example>,
+}
+
+/// An `example`: a function without parameters returning the two sides of
+/// a comparison (`compare` is set) or a single bool.
+#[derive(Debug)]
+pub struct Example {
+    pub function: Function,
+    pub compare: Option<BinOp>,
+    pub span: Span,
 }
 
 impl Program {
