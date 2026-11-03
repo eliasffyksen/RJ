@@ -95,6 +95,8 @@ pub enum LocalKind {
 #[derive(Debug)]
 pub struct BasicBlock {
     pub stmts: Vec<Stmt>,
+    /// The source statement each of `stmts` came from, for diagnostics.
+    pub spans: Vec<Span>,
     pub terminator: Terminator,
 }
 

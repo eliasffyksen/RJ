@@ -171,6 +171,16 @@ test.rj:9:8: error[E0200]: expected NodeId, found i32
   for editors, tools and LLMs.
 - `rjc --explain E0200` explains an error code.
 
+### Copy notes
+
+`rjc --copies FILE` reports every array or struct copy the compiler
+couldn't remove, and why:
+
+```
+test.rj:20:3: note[N0001]: copies `g.nodes[4]` for `clobber`, which changes
+its parameter: only a whole variable can be handed over
+```
+
 ### Examples
 
 `example` declarations are checked every time a program is compiled, by

@@ -58,6 +58,8 @@ pub enum Code {
     // Examples
     ExampleFailed,
     ExampleTrapped,
+    // Notes
+    Copy,
 }
 
 impl Code {
@@ -94,6 +96,7 @@ impl Code {
         Code::InfiniteType,
         Code::ExampleFailed,
         Code::ExampleTrapped,
+        Code::Copy,
     ];
 
     pub fn id(self) -> &'static str {
@@ -130,6 +133,7 @@ impl Code {
             Code::InfiniteType => "E0401",
             Code::ExampleFailed => "E0500",
             Code::ExampleTrapped => "E0501",
+            Code::Copy => "N0001",
         }
     }
 
@@ -171,6 +175,7 @@ impl Code {
             Code::InfiniteType => "type contains itself",
             Code::ExampleFailed => "example failed",
             Code::ExampleTrapped => "example trapped",
+            Code::Copy => "copy kept",
         }
     }
 
@@ -280,6 +285,13 @@ impl Code {
                 "Running an `example` stopped with an error, such as an index out of \
                  bounds, or took too many steps (a loop that may never end)."
             }
+            Code::Copy => {
+                "Reported with `--copies`: the compiler copies an array or struct here. \
+                 Values are passed and assigned by value, and the compiler removes \
+                 copies when it can: `x = f(x)` updates `x` in place, read-only \
+                 parameters borrow their argument, and a variable that isn't used \
+                 again is handed over. The note says why this copy stayed."
+            }
             Code::InfiniteType => {
                 "A type can't contain itself by value, directly or through arrays \
                  and other types, because it would have infinite size. Refer to \
@@ -289,9 +301,26 @@ impl Code {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    /// Information that doesn't stop compilation.
+    Note,
+}
+
+impl Severity {
+    fn as_str(self) -> &'static str {
+        match self {
+            Severity::Error => "error",
+            Severity::Note => "note",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Error {
     pub code: Code,
+    pub severity: Severity,
     pub message: String,
     pub span: Span,
     /// A suggestion for fixing the error.
@@ -305,11 +334,19 @@ impl Error {
     pub fn new(code: Code, message: impl Into<String>, span: Span) -> Error {
         Error {
             code,
+            severity: Severity::Error,
             message: message.into(),
             span,
             help: None,
             expected: None,
             found: None,
+        }
+    }
+
+    pub fn note(code: Code, message: impl Into<String>, span: Span) -> Error {
+        Error {
+            severity: Severity::Note,
+            ..Error::new(code, message, span)
         }
     }
 
@@ -343,7 +380,8 @@ impl Error {
         let mut out = String::new();
         writeln!(
             out,
-            "{path}:{line_number}:{column}: error[{}]: {}",
+            "{path}:{line_number}:{column}: {}[{}]: {}",
+            self.severity.as_str(),
             self.code.id(),
             self.message
         )
@@ -372,7 +410,7 @@ impl Error {
         let mut fields = vec![
             format!("\"code\":{}", json_string(self.code.id())),
             format!("\"title\":{}", json_string(self.code.title())),
-            "\"severity\":\"error\"".to_string(),
+            format!("\"severity\":\"{}\"", self.severity.as_str()),
             format!("\"message\":{}", json_string(&self.message)),
             format!("\"file\":{}", json_string(path)),
             format!(

@@ -56,6 +56,7 @@ fn lower_function(
         this_slot: None,
         blocks: vec![],
         current: None,
+        span: function.span,
     };
 
     builder.returns = function
@@ -96,8 +97,9 @@ fn lower_function(
         blocks: builder
             .blocks
             .into_iter()
-            .map(|(stmts, terminator)| BasicBlock {
+            .map(|(stmts, spans, terminator)| BasicBlock {
                 stmts,
+                spans,
                 terminator: terminator.expect("unterminated block"),
             })
             .collect(),
@@ -113,9 +115,11 @@ struct Builder<'a> {
     /// `this` and the return slot it is handed back in, for methods that
     /// change it.
     this_slot: Option<(LocalId, LocalId)>,
-    blocks: Vec<(Vec<Stmt>, Option<Terminator>)>,
+    blocks: Vec<(Vec<Stmt>, Vec<Span>, Option<Terminator>)>,
     /// The block statements are appended to; `None` after a `return`.
     current: Option<BlockId>,
+    /// The source statement being lowered.
+    span: Span,
 }
 
 impl Builder<'_> {
@@ -129,18 +133,19 @@ impl Builder<'_> {
     }
 
     fn new_block(&mut self) -> BlockId {
-        self.blocks.push((vec![], None));
+        self.blocks.push((vec![], vec![], None));
         BlockId(self.blocks.len() - 1)
     }
 
     fn push(&mut self, stmt: Stmt) {
         let current = self.current.expect("statement in unreachable code");
         self.blocks[current.0].0.push(stmt);
+        self.blocks[current.0].1.push(self.span);
     }
 
     fn terminate(&mut self, terminator: Terminator) {
         let current = self.current.take().expect("terminator in unreachable code");
-        self.blocks[current.0].1 = Some(terminator);
+        self.blocks[current.0].2 = Some(terminator);
     }
 
     fn returns_of(&self, call: &hir::Call) -> Vec<Type> {
@@ -154,6 +159,12 @@ impl Builder<'_> {
     }
 
     fn stmt(&mut self, stmt: &hir::Stmt) {
+        let outer = std::mem::replace(&mut self.span, stmt.span);
+        self.stmt_kind(stmt);
+        self.span = outer;
+    }
+
+    fn stmt_kind(&mut self, stmt: &hir::Stmt) {
         match &stmt.kind {
             hir::StmtKind::Assign { targets, values } => self.assign(targets, values),
 

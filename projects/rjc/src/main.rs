@@ -85,8 +85,14 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    if config.json {
-        report(&[]);
+    let notes = if config.copies {
+        codegen::copy_notes(&program)
+    } else {
+        vec![]
+    };
+
+    if config.json || !notes.is_empty() {
+        report(&notes);
     }
 
     if config.emit_ir {

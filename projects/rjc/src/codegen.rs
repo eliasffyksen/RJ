@@ -25,6 +25,7 @@
 
 use std::{collections::HashSet, fmt::Write as _};
 
+use crate::diagnostic::{Code, Error, Span};
 use crate::ir::{
     liveness::{liveness, Liveness},
     modes::{param_modes, ParamMode},
@@ -51,10 +52,23 @@ pub fn emit(program: &Program, source_name: &str) -> String {
 
     for (i, function) in program.functions.iter().enumerate() {
         writeln!(out).unwrap();
-        out.push_str(&FunctionEmitter::new(program, function, &modes, &modes[i]).emit());
+        out.push_str(&FunctionEmitter::new(program, function, &modes, &modes[i]).emit().0);
     }
 
     out
+}
+
+/// A note for every array or struct copy the generated code makes, saying
+/// why the copy couldn't be avoided.
+pub fn copy_notes(program: &Program) -> Vec<Error> {
+    let modes = program.functions.iter().map(param_modes).collect::<Vec<_>>();
+
+    program
+        .functions
+        .iter()
+        .enumerate()
+        .flat_map(|(i, function)| FunctionEmitter::new(program, function, &modes, &modes[i]).emit().1)
+        .collect()
 }
 
 pub fn symbol(name: &str) -> String {
@@ -99,6 +113,9 @@ struct FunctionEmitter<'a> {
     next_register: usize,
     next_label: usize,
     uses_trap: bool,
+    /// The source statement being emitted, and notes about copies in it.
+    span: Span,
+    notes: Vec<Error>,
 }
 
 impl<'a> FunctionEmitter<'a> {
@@ -120,6 +137,8 @@ impl<'a> FunctionEmitter<'a> {
             next_register: 0,
             next_label: 0,
             uses_trap: false,
+            span: Span::new(0, 0),
+            notes: vec![],
         }
     }
 
@@ -176,7 +195,53 @@ impl<'a> FunctionEmitter<'a> {
         name
     }
 
-    fn emit(mut self) -> String {
+    /// Records why the copy just emitted was needed.
+    fn note(&mut self, message: String, help: Option<&str>) {
+        let mut note = Error::note(Code::Copy, message, self.span);
+        if let Some(help) = help {
+            note.help(help);
+        }
+        self.notes.push(note);
+    }
+
+    /// How a place reads in source: `g.nodes[i].edges`, `a temporary`.
+    fn describe(&self, local: LocalId, path: &[Elem]) -> String {
+        let local_info = self.function.local(local);
+        let mut out = match &local_info.kind {
+            LocalKind::Param(name) | LocalKind::Var(name) => format!("`{name}"),
+            LocalKind::Return => return "the return value".to_string(),
+            LocalKind::Temp if path.is_empty() => return "a temporary".to_string(),
+            LocalKind::Temp => "`(...)".to_string(),
+        };
+
+        let mut ty = local_info.ty.clone();
+        for elem in path {
+            ty = match (elem, ty) {
+                (Elem::Index(index), Type::Array(elem, _)) => {
+                    let index = match index {
+                        Operand::Int(i) => i.to_string(),
+                        Operand::Local(id) => match &self.function.local(*id).kind {
+                            LocalKind::Param(name) | LocalKind::Var(name) => name.clone(),
+                            _ => "...".to_string(),
+                        },
+                        Operand::Bool(b) => b.to_string(),
+                    };
+                    out += &format!("[{index}]");
+                    *elem
+                }
+                (Elem::Field(field), Type::Struct(id, _)) => {
+                    let field = &self.program.structs[id.0].fields[*field];
+                    out += &format!(".{}", field.name);
+                    field.ty.clone()
+                }
+                (_, ty) => unreachable!("path does not match type {ty}"),
+            };
+        }
+
+        out + "`"
+    }
+
+    fn emit(mut self) -> (String, Vec<Error>) {
         let function = self.function;
 
         let mut params = vec![];
@@ -224,6 +289,7 @@ impl<'a> FunctionEmitter<'a> {
             self.start_block(format!("bb{i}"));
 
             for (j, stmt) in block.stmts.iter().enumerate() {
+                self.span = block.spans[j];
                 self.stmt(stmt, i, j);
             }
 
@@ -236,13 +302,15 @@ impl<'a> FunctionEmitter<'a> {
             self.line("unreachable");
         }
 
-        format!(
+        let text = format!(
             "define void @{}({}) {{\nentry:\n{}  br label %bb0\n{}}}\n",
             symbol(&function.name),
             params.join(", "),
             self.entry,
             self.body
-        )
+        );
+
+        (text, self.notes)
     }
 
     fn operand_type(&self, operand: Operand) -> Type {
@@ -323,8 +391,9 @@ impl<'a> FunctionEmitter<'a> {
         (ptr, ty)
     }
 
-    /// Stores `value` of type `ty` at `ptr`; aggregates are copied.
-    fn store_at(&mut self, ptr: &str, value: Operand, ty: &Type) {
+    /// Stores `value` of type `ty` at `ptr`, described as `dest` in notes;
+    /// aggregates are copied.
+    fn store_at(&mut self, ptr: &str, value: Operand, ty: &Type, dest: &str) {
         if ty.is_aggregate() {
             let Operand::Local(src) = value else {
                 unreachable!("aggregate operand is not a local");
@@ -333,6 +402,8 @@ impl<'a> FunctionEmitter<'a> {
             let from = self.slot(src);
             if from != ptr {
                 self.memcpy(ptr, &from, ty);
+                let src = self.describe(src, &[]);
+                self.note(format!("copies {src} into {dest}"), None);
             }
         } else {
             let value = self.operand(value);
@@ -340,10 +411,12 @@ impl<'a> FunctionEmitter<'a> {
         }
     }
 
-    /// Copies the value of type `ty` at `from` to `to`.
-    fn copy_at(&mut self, to: &str, from: &str, ty: &Type) {
+    /// Copies the value of type `ty` at `from` to `to`, described as `what`
+    /// in notes.
+    fn copy_at(&mut self, to: &str, from: &str, ty: &Type, what: &str) {
         if ty.is_aggregate() {
             self.memcpy(to, from, ty);
+            self.note(format!("copies {what}"), None);
         } else {
             let register = self.register();
             let llvm_ty = llvm_type(ty);
@@ -359,7 +432,8 @@ impl<'a> FunctionEmitter<'a> {
 
             Stmt::SetPlace { local, path, value } => {
                 let (ptr, ty) = self.place_ptr(*local, path);
-                self.store_at(&ptr, *value, &ty);
+                let dest = self.describe(*local, path);
+                self.store_at(&ptr, *value, &ty, &dest);
             }
 
             Stmt::Call { func, args, dests } => {
@@ -444,14 +518,35 @@ impl<'a> FunctionEmitter<'a> {
 
             let (from, _) = self.place_ptr(arg.local, &arg.path);
 
+            let callee = &self.program.function(func).name;
+            let (arg_desc, dest_desc) = (
+                self.describe(arg.local, &arg.path),
+                self.describe(dest.local, &dest.path),
+            );
+
             if count(&read_roots, &dest_roots[ret]) == 0 {
                 // Nothing else in the call reads the destination's variable,
                 // so fill the destination first.
                 let to = ret_ptrs[ret].clone();
                 self.memcpy(&to, &from, &ty);
+                self.note(
+                    format!(
+                        "copies {arg_desc} into {dest_desc} for `{callee}`, because the result goes to a \
+                         different place than the argument"
+                    ),
+                    Some("assign the result back to the argument (`x = f(x)`) to update it in place"),
+                );
             } else {
                 let temp = self.temp_array(&ty);
                 self.memcpy(&temp, &from, &ty);
+                let root = self.describe(dest.local, &[]);
+                self.note(
+                    format!(
+                        "copies {arg_desc} in and out of a temporary for `{callee}`, because the call \
+                         also reads {root}, where the result goes"
+                    ),
+                    None,
+                );
                 let original = std::mem::replace(&mut ret_ptrs[ret], temp.clone());
                 copy_back.push((temp, original, ty));
             }
@@ -481,26 +576,49 @@ impl<'a> FunctionEmitter<'a> {
             };
             let root = self.slot(place.local);
 
-            let lend = match mode {
-                ParamMode::Read => !written.contains(&root),
-                // Only a whole variable can be handed over.
-                _ => {
-                    place.path.is_empty()
-                        && self.owns(place.local)
-                        && count(&read_roots, &root) == 1
-                        && !live_after.contains(&place.local)
-                        && count(&dest_roots, &root) == 0
+            // Why the argument can't be passed as it is, if it can't.
+            let variable = self.describe(place.local, &[]);
+            let reason = match mode {
+                ParamMode::Read if written.contains(&root) => {
+                    Some(format!("the call also writes {variable}"))
                 }
+                ParamMode::Read => None,
+                // Only a whole variable can be handed over.
+                _ if !place.path.is_empty() => {
+                    Some("only a whole variable can be handed over".to_string())
+                }
+                _ if self.param_mode(place.local) == Some(ParamMode::Read) => {
+                    Some(format!("{variable} is a read-only parameter, owned by the caller"))
+                }
+                _ if !self.owns(place.local) => {
+                    Some(format!("{variable} holds this function's result"))
+                }
+                _ if count(&read_roots, &root) != 1 => {
+                    Some(format!("{variable} is passed to the call more than once"))
+                }
+                _ if live_after.contains(&place.local) => {
+                    Some(format!("{variable} is used again later"))
+                }
+                _ if count(&dest_roots, &root) != 0 => {
+                    Some(format!("the call also writes {variable}"))
+                }
+                _ => None,
             };
 
             let (ptr, ty) = self.place_ptr(place.local, &place.path);
 
-            if lend {
-                call_args.push(format!("ptr {ptr}"));
-            } else {
-                let temp = self.temp_array(&ty);
-                self.memcpy(&temp, &ptr, &ty);
-                call_args.push(format!("ptr {temp}"));
+            match reason {
+                None => call_args.push(format!("ptr {ptr}")),
+                Some(reason) => {
+                    let temp = self.temp_array(&ty);
+                    self.memcpy(&temp, &ptr, &ty);
+                    call_args.push(format!("ptr {temp}"));
+
+                    let callee = &self.program.function(func).name;
+                    let changes = if *mode == ParamMode::Consume { ", which changes its parameter" } else { "" };
+                    let arg = self.describe(place.local, &place.path);
+                    self.note(format!("copies {arg} for `{callee}`{changes}: {reason}"), None);
+                }
             }
         }
 
@@ -519,7 +637,8 @@ impl<'a> FunctionEmitter<'a> {
         match value {
             Rvalue::Use(operand) => {
                 let slot = self.slot(dest);
-                self.store_at(&slot, *operand, &ty);
+                let what = self.describe(dest, &[]);
+                self.store_at(&slot, *operand, &ty, &what);
             }
 
             Rvalue::Binary(op, lhs, rhs) => {
@@ -531,7 +650,12 @@ impl<'a> FunctionEmitter<'a> {
             Rvalue::Read(local, path) => {
                 let (from, part_ty) = self.place_ptr(*local, path);
                 let slot = self.slot(dest);
-                self.copy_at(&slot, &from, &part_ty);
+                let what = format!(
+                    "{} into {}",
+                    self.describe(*local, path),
+                    self.describe(dest, &[])
+                );
+                self.copy_at(&slot, &from, &part_ty, &what);
             }
 
             Rvalue::Array(elems) => {
@@ -541,7 +665,8 @@ impl<'a> FunctionEmitter<'a> {
                     let ptr = self.register();
                     let slot = self.slot(dest);
                     self.line(format!("{ptr} = getelementptr {llvm_ty}, ptr {slot}, i64 0, i64 {i}"));
-                    self.store_at(&ptr, *elem, elem_ty);
+                    let what = format!("element {i} of {}", self.describe(dest, &[]));
+                    self.store_at(&ptr, *elem, elem_ty, &what);
                 }
             }
 
@@ -553,7 +678,8 @@ impl<'a> FunctionEmitter<'a> {
                     let ptr = self.register();
                     let slot = self.slot(dest);
                     self.line(format!("{ptr} = getelementptr {llvm_ty}, ptr {slot}, i32 0, i32 {i}"));
-                    self.store_at(&ptr, *field, &def_field.ty);
+                    let what = format!("field `{}` of {}", def_field.name, self.describe(dest, &[]));
+                    self.store_at(&ptr, *field, &def_field.ty, &what);
                 }
             }
 
@@ -583,7 +709,10 @@ impl<'a> FunctionEmitter<'a> {
                 let slot = self.slot(dest);
                 self.line(format!("{ptr} = getelementptr {llvm_ty}, ptr {slot}, i64 0, i64 {i}"));
                 match value {
-                    Ok(operand) => self.store_at(&ptr, operand, elem_ty),
+                    Ok(operand) => {
+                        let what = format!("every element of {}", self.describe(dest, &[]));
+                        self.store_at(&ptr, operand, elem_ty, &what)
+                    }
                     Err(register) => {
                         self.line(format!("store {} {register}, ptr {ptr}", llvm_type(elem_ty)))
                     }
@@ -869,6 +998,63 @@ mod tests {
         assert_eq!(
             copies(&source, &["Node.bump_node", "Graph.bump_all", "Graph.first", "run"]),
             [0, 0, 0, 0]
+        );
+    }
+
+    fn notes(source: &str) -> Vec<String> {
+        let program = check::check(&syntax::parse(source).unwrap()).unwrap();
+        copy_notes(&crate::ir::lower(&program))
+            .into_iter()
+            .map(|note| note.message)
+            .collect()
+    }
+
+    #[test]
+    fn copy_notes_explain_kept_copies() {
+        let source = format!(
+            "{GRAPH}
+             fn clobber(n: Node): i32 {{ n.value = 0 return n.value }}
+             fn first(n: Node): i32 {{ return n.value }}
+             fn run(g: Graph): i32 {{
+               g.nodes[0] = bump(g.nodes[0])
+               g.nodes[1] = bump(g.nodes[2])
+               x: i32
+               x = first(g.nodes[3])
+               x = x + clobber(g.nodes[4])
+               n: Node
+               n = g.nodes[5]
+               return x + n.value
+             }}
+             fn main(): i32 {{ return 0 }}"
+        );
+
+        assert_eq!(
+            notes(&source),
+            [
+                "copies `g.nodes[2]` in and out of a temporary for `bump`, because the call also \
+                 reads `g`, where the result goes",
+                "copies `g.nodes[4]` for `clobber`, which changes its parameter: only a whole \
+                 variable can be handed over",
+                "copies `g.nodes[5]` into `n`",
+            ]
+        );
+    }
+
+    #[test]
+    fn copy_notes_give_the_reason_for_consumed_arguments() {
+        let source = "
+            type B struct { v: [i32; 4] }
+            fn clobber(b: B): i32 { b.v[0] = 1 return b.v[0] }
+            fn main(): i32 {
+              b: B
+              b = B(v: [0; 4])
+              return clobber(b) + b.v[0] - 1
+            }";
+
+        let notes = notes(source);
+        assert!(
+            notes.iter().any(|n| n == "copies `b` for `clobber`, which changes its parameter: `b` is used again later"),
+            "{notes:#?}"
         );
     }
 

@@ -92,3 +92,18 @@ fn failing_example_in_json() {
     assert!(stdout.contains(r#""line":2"#), "{stdout}");
     assert!(stdout.contains(r#""expected":"5","found":"-1""#), "{stdout}");
 }
+
+#[test]
+fn copy_notes_in_json() {
+    let path = source_file(
+        "copies.rj",
+        "type B struct { v: [i32; 4] }\nfn main(): i32 {\n  a: B\n  b: B\n  a = B(v: [0; 4])\n  b = a\n  return a.v[0] + b.v[0]\n}\n",
+    );
+
+    let (ok, stdout, _) = rjc(&["--json", "--copies", path.to_str().unwrap()]);
+
+    assert!(ok, "notes don't fail compilation");
+    assert!(stdout.contains(r#""code":"N0001","title":"copy kept","severity":"note""#), "{stdout}");
+    assert!(stdout.contains("copies `a` into `b`"), "{stdout}");
+    assert!(stdout.contains(r#""line":6"#), "{stdout}");
+}

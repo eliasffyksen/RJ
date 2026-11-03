@@ -9,6 +9,8 @@ pub struct Config {
     pub emit_llvm: bool,
     /// Report diagnostics as JSON on stdout.
     pub json: bool,
+    /// Report the array and struct copies the compiler couldn't remove.
+    pub copies: bool,
     /// Print the explanation of an error code and exit.
     pub explain: String,
     pub file_name: String,
@@ -55,6 +57,12 @@ impl Config {
                 &["--json"],
                 argparse::StoreTrue,
                 "Report diagnostics as JSON on stdout",
+            );
+
+            ap.refer(&mut config.copies).add_option(
+                &["--copies"],
+                argparse::StoreTrue,
+                "Report array and struct copies the compiler couldn't remove",
             );
 
             ap.refer(&mut config.explain).add_option(
