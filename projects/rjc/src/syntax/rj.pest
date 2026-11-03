@@ -2,7 +2,7 @@ WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
 
 func = {
-  "fn" ~ ident
+  "fn" ~ (receiver ~ ".")? ~ ident
   ~ "(" ~ (var_decl ~ ("," ~ var_decl)*)? ~ ")"
   ~ (":" ~ ret_type ~ ("," ~ ret_type)*)?
   ~ block
@@ -13,7 +13,7 @@ ret_type = {
 }
 
 keyword = @{
-  ("fn" | "struct" | "if" | "else" | "while" | "return" | "true" | "false")
+  ("fn" | "type" | "struct" | "this" | "if" | "else" | "while" | "return" | "true" | "false")
   ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -32,6 +32,12 @@ stmt = {
   | func_call
   | if_stmt
   | while_stmt
+  | expr_stmt
+}
+
+// Only method calls are allowed as statements; the parser checks this.
+expr_stmt = {
+  postfix
 }
 
 while_stmt = {
@@ -52,7 +58,15 @@ assign = {
 }
 
 place = {
-  ident ~ (index_suffix | field_suffix)*
+  (this_ref | ident) ~ (index_suffix | field_suffix)*
+}
+
+this_ref = @{
+  "this" ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+method_suffix = {
+  "." ~ ident ~ "(" ~ expr_list ~ ")"
 }
 
 index_suffix = {
@@ -87,12 +101,13 @@ pred_2 = {
 }
 
 postfix = {
-  pred_max ~ (index_suffix | field_suffix)+
+  pred_max ~ (index_suffix | method_suffix | field_suffix)+
 }
 
 pred_max = {
   struct_lit
   | func_call
+  | this_ref
   | ident
   | literal
   | array_repeat
@@ -177,12 +192,21 @@ named_type = {
   ident
 }
 
-struct_def = {
-  "struct" ~ ident ~ "{"
+receiver = {
+  ident
+}
+
+// `type Name struct { ... }` or `type Name <type>`.
+type_def = {
+  "type" ~ ident ~ (struct_type | var_type)
+}
+
+struct_type = {
+  "struct" ~ "{"
   ~ (var_decl ~ ("," ~ var_decl)* ~ ","?)?
   ~ "}"
 }
 
 module = {
-  SOI ~ (struct_def | func)* ~ EOI
+  SOI ~ (type_def | func)* ~ EOI
 }

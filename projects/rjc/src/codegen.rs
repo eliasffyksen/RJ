@@ -67,6 +67,7 @@ fn llvm_type(ty: &Type) -> String {
         Type::Bool => "i1".to_string(),
         Type::Array(elem, len) => format!("[{len} x {}]", llvm_type(elem)),
         Type::Struct(_, name) => format!("%struct.{name}"),
+        Type::Named(..) => unreachable!("named types are erased by the checker"),
     }
 }
 
@@ -758,8 +759,8 @@ mod tests {
     #[test]
     fn nested_struct_update_copies_nothing() {
         let source = "
-            struct Node { value: i32, edges: [i32; 100] }
-            struct Graph { nodes: [Node; 100] }
+            type Node struct { value: i32, edges: [i32; 100] }
+            type Graph struct { nodes: [Node; 100] }
             fn bump(g: Graph, i: i32): Graph {
               g.nodes[i].value = g.nodes[i].value + 1
               return g
@@ -784,8 +785,8 @@ mod tests {
     }
 
     const GRAPH: &str = "
-        struct Node { value: i32, edges: [i32; 100] }
-        struct Graph { nodes: [Node; 100] }
+        type Node struct { value: i32, edges: [i32; 100] }
+        type Graph struct { nodes: [Node; 100] }
         fn bump(n: Node): Node { n.value = n.value + 1 return n }
         fn total(edges: [i32; 100]): i32 { return edges[0] + edges[99] }";
 
@@ -842,6 +843,33 @@ mod tests {
         // `g.nodes[1]` must survive, and the call reads `g` while writing
         // into it, so the argument goes through a temporary and back.
         assert_eq!(copies(&source, &["shift"]), [2]);
+    }
+
+    #[test]
+    fn method_calls_copy_nothing() {
+        let source = format!(
+            "{GRAPH}
+             fn Node.bump_node() {{ this.value = this.value + 1 }}
+             fn Graph.bump_all() {{
+               i: i32
+               i = 0
+               while i < 100 {{
+                 this.nodes[i].bump_node()
+                 i = i + 1
+               }}
+             }}
+             fn Graph.first(): i32 {{ return this.nodes[0].value }}
+             fn run(g: Graph): i32 {{
+               g.bump_all()
+               return g.first()
+             }}
+             fn main(): i32 {{ return 0 }}"
+        );
+
+        assert_eq!(
+            copies(&source, &["Node.bump_node", "Graph.bump_all", "Graph.first", "run"]),
+            [0, 0, 0, 0]
+        );
     }
 
     #[test]

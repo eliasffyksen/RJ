@@ -29,11 +29,27 @@ fn min_max(a: [i32; 4]): i32, i32 {
 }
 ```
 
-- Types: `i32`, `bool`, fixed-size arrays `[T; N]` of any type, and structs:
+- Types: `i32`, `bool`, fixed-size arrays `[T; N]`, and named types declared
+  with `type`:
   ```
-  struct Node { value: i32, edges: [i32; 4] }
+  type NodeId i32
+  type Node struct { value: i32, edges: [NodeId; 4] }
   n = Node(value: 1, edges: [0; 4])   // named fields, in any order
   ```
+  A named type is distinct from what it names but supports its operations.
+  Literals adapt to it (`id = id + 1`, `edges = [0; 4]`); anything else
+  needs a conversion such as `NodeId(i)` or `i32(id)`.
+- Methods are declared on named types and use `this`:
+  ```
+  fn Node.add(to: NodeId) {
+    this.edges[this.count] = to
+    this.count = this.count + 1
+  }
+
+  g.nodes[a].add(b)   // updates that node, in place
+  ```
+  A method that changes `this` updates the variable (or part of one) it is
+  called on; on any other value the change is discarded.
 - Everything is a value: assigning, passing or returning an array or struct
   copies it, and a function changing its parameter never affects the caller.
 - Inside a function, variables are mutable: assignment (including parallel

@@ -4,8 +4,15 @@
 //! - every variable is assigned before it is read (definite assignment);
 //! - every function with return values returns on all paths;
 //! - no statement follows a `return` in the same block;
-//! - no struct contains itself;
+//! - no type contains itself;
 //! - a `fn main(): i32` exists.
+//!
+//! Named types (`type NodeId i32`) are distinct from their underlying type
+//! but support its operations. Integer and bool literals adapt to named
+//! types, and an array value can be assigned to a named array type; any
+//! other change of type needs a conversion like `NodeId(x)` or `i32(id)`.
+//! The output uses underlying types only, so later stages never see named
+//! types other than structs.
 //!
 //! Errors are collected rather than stopping at the first one. Once part of
 //! the program fails to check, it is dropped, so errors don't cascade.
@@ -17,9 +24,9 @@ use std::{
 
 use crate::{
     diagnostic::{Error, Span},
-    hir::{self, BinOp, FuncId, LocalId, StructDef, StructId, Type},
+    hir::{self, BinOp, FuncId, LocalId, StructDef, Type},
     syntax::ast,
-    types::Field,
+    types::{Field, NamedId, StructId},
 };
 
 pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
@@ -27,6 +34,10 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
 
     let mut functions_by_name: HashMap<&str, FuncId> = HashMap::new();
     for (index, function) in module.functions.iter().enumerate() {
+        if function.receiver.is_some() {
+            continue;
+        }
+
         let name = function.name.name.as_str();
 
         if functions_by_name.contains_key(name) {
@@ -41,16 +52,69 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
 
     let types = Types::new(module, &functions_by_name, &mut errors);
 
+    // Methods, by receiver type and name.
+    let mut methods: HashMap<(Type, String), FuncId> = HashMap::new();
+    let mut receivers = vec![None; module.functions.len()];
+
+    for (index, function) in module.functions.iter().enumerate() {
+        let Some(receiver) = &function.receiver else {
+            continue;
+        };
+        let name = &function.name.name;
+
+        let ty = match types.by_name.get(&receiver.name) {
+            Some(ty) => ty.clone(),
+            None if matches!(receiver.name.as_str(), "i32" | "bool") => {
+                errors.push(Error::new(
+                    "methods can only be defined on types declared with `type`",
+                    receiver.span,
+                ));
+                continue;
+            }
+            None => {
+                errors.push(Error::new(format!("unknown type `{}`", receiver.name), receiver.span));
+                continue;
+            }
+        };
+
+        if let Type::Struct(id, _) = &ty {
+            if types.structs[id.0].field_index(name).is_some() {
+                errors.push(Error::new(
+                    format!("{ty} has both a field and a method called `{name}`"),
+                    function.name.span,
+                ));
+                continue;
+            }
+        }
+
+        let key = (ty.clone(), name.clone());
+        if methods.contains_key(&key) {
+            errors.push(Error::new(
+                format!("method `{ty}.{name}` is already defined"),
+                function.name.span,
+            ));
+            continue;
+        }
+
+        methods.insert(key, FuncId(index));
+        receivers[index] = Some(ty);
+    }
+
     // A signature is `None` if one of its types failed to resolve; calls to
     // it are then skipped rather than reported again.
     let signatures = module
         .functions
         .iter()
-        .map(|function| {
-            let params = function
-                .params
+        .zip(&receivers)
+        .map(|(function, receiver)| {
+            if function.receiver.is_some() && receiver.is_none() {
+                return None;
+            }
+
+            let params = receiver
                 .iter()
-                .map(|param| types.resolve(&param.ty, &mut errors))
+                .map(|ty| Some(ty.clone()))
+                .chain(function.params.iter().map(|param| types.resolve(&param.ty, &mut errors)))
                 .collect::<Option<Vec<_>>>();
             let returns = function
                 .returns
@@ -94,6 +158,7 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
                 types: &types,
                 signatures: &signatures,
                 functions_by_name: &functions_by_name,
+                methods: &methods,
                 errors: &mut errors,
                 returns: &signature.returns,
                 locals: vec![],
@@ -108,9 +173,30 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
         return Err(errors);
     }
 
+    let mut functions = functions.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+    for function in &mut functions {
+        types.erase_function(function);
+    }
+
+    let structs = types
+        .structs
+        .iter()
+        .map(|def| StructDef {
+            name: def.name.clone(),
+            fields: def
+                .fields
+                .iter()
+                .map(|field| Field {
+                    name: field.name.clone(),
+                    ty: types.erase(&field.ty),
+                })
+                .collect(),
+        })
+        .collect();
+
     Ok(hir::Program {
-        structs: types.structs,
-        functions: functions.into_iter().map(Option::unwrap).collect(),
+        structs,
+        functions,
         main: main.unwrap(),
     })
 }
@@ -120,10 +206,16 @@ struct Signature {
     returns: Vec<Type>,
 }
 
-/// The program's structs, and resolution of type syntax.
+struct NamedDef {
+    underlying: Type,
+}
+
+/// The program's named types, and resolution of type syntax.
 struct Types {
     structs: Vec<StructDef>,
-    by_name: HashMap<String, StructId>,
+    named: Vec<NamedDef>,
+    /// `Type::Struct` or `Type::Named`.
+    by_name: HashMap<String, Type>,
 }
 
 impl Types {
@@ -134,91 +226,128 @@ impl Types {
     ) -> Types {
         let mut types = Types {
             structs: vec![],
+            named: vec![],
             by_name: HashMap::new(),
         };
 
-        // Register every name first, so fields can refer to any struct.
-        for def in &module.structs {
+        // Register every name first, so definitions can refer to any type.
+        let mut defined = vec![];
+        for def in &module.types {
             let name = &def.name.name;
 
-            if types.by_name.contains_key(name) {
+            if types.by_name.contains_key(name) || matches!(name.as_str(), "i32" | "bool") {
                 errors.push(Error::new(
-                    format!("struct `{name}` is already defined"),
+                    format!("type `{name}` is already defined"),
                     def.name.span,
                 ));
-            } else if functions_by_name.contains_key(name.as_str()) {
+                continue;
+            }
+            if functions_by_name.contains_key(name.as_str()) {
                 // `Name(...)` must mean one thing.
                 errors.push(Error::new(
-                    format!("`{name}` is defined as both a struct and a function"),
+                    format!("`{name}` is defined as both a type and a function"),
                     def.name.span,
                 ));
+                continue;
             }
 
-            types
-                .by_name
-                .entry(name.clone())
-                .or_insert(StructId(types.structs.len()));
-            types.structs.push(StructDef {
-                name: name.clone(),
-                fields: vec![],
-            });
-        }
-
-        for (index, def) in module.structs.iter().enumerate() {
-            let mut fields: Vec<Field> = vec![];
-
-            for field in &def.fields {
-                if fields.iter().any(|f| f.name == field.name.name) {
-                    errors.push(Error::new(
-                        format!("field `{}` is already declared", field.name.name),
-                        field.name.span,
-                    ));
-                    continue;
-                }
-
-                if let Some(ty) = types.resolve(&field.ty, errors) {
-                    fields.push(Field {
-                        name: field.name.name.clone(),
-                        ty,
+            let ty = match def.body {
+                ast::TypeDefBody::Struct(_) => {
+                    types.structs.push(StructDef {
+                        name: name.clone(),
+                        fields: vec![],
                     });
+                    Type::Struct(StructId(types.structs.len() - 1), Rc::from(name.as_str()))
                 }
-            }
+                ast::TypeDefBody::Type(_) => {
+                    types.named.push(NamedDef {
+                        underlying: Type::I32,
+                    });
+                    Type::Named(NamedId(types.named.len() - 1), Rc::from(name.as_str()))
+                }
+            };
 
-            types.structs[index].fields = fields;
+            types.by_name.insert(name.clone(), ty.clone());
+            defined.push((def, ty));
         }
 
-        for (index, def) in module.structs.iter().enumerate() {
-            if types.contains(&mut vec![], StructId(index), StructId(index)) {
+        for (def, ty) in &defined {
+            match (&def.body, ty) {
+                (ast::TypeDefBody::Struct(decls), Type::Struct(id, _)) => {
+                    let mut fields: Vec<Field> = vec![];
+
+                    for field in decls {
+                        if fields.iter().any(|f| f.name == field.name.name) {
+                            errors.push(Error::new(
+                                format!("field `{}` is already declared", field.name.name),
+                                field.name.span,
+                            ));
+                            continue;
+                        }
+
+                        if let Some(ty) = types.resolve(&field.ty, errors) {
+                            fields.push(Field {
+                                name: field.name.name.clone(),
+                                ty,
+                            });
+                        }
+                    }
+
+                    types.structs[id.0].fields = fields;
+                }
+                (ast::TypeDefBody::Type(expr), Type::Named(id, _)) => {
+                    if let Some(underlying) = types.resolve(expr, errors) {
+                        types.named[id.0].underlying = underlying;
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        let mut cyclic = vec![];
+        for (def, ty) in &defined {
+            if types.contains(&mut vec![], ty, ty) {
                 errors.push(Error::new(
                     format!(
-                        "struct `{}` contains itself, so it would have infinite size",
+                        "type `{}` contains itself, so it would have infinite size",
                         def.name.name
                     ),
                     def.name.span,
                 ));
+                cyclic.push(ty.clone());
+            }
+        }
+
+        // Break cycles so later lookups through them terminate.
+        for ty in cyclic {
+            match ty {
+                Type::Named(id, _) => types.named[id.0].underlying = Type::I32,
+                Type::Struct(id, _) => types.structs[id.0].fields.clear(),
+                _ => {}
             }
         }
 
         types
     }
 
-    /// Whether `outer` contains a `target` somewhere inside it.
-    fn contains(&self, visited: &mut Vec<StructId>, outer: StructId, target: StructId) -> bool {
-        if visited.contains(&outer) {
-            return false;
-        }
-        visited.push(outer);
+    /// Whether `outer` stores a `target` somewhere inside it.
+    fn contains(&self, visited: &mut Vec<Type>, outer: &Type, target: &Type) -> bool {
+        let inner = match outer {
+            Type::I32 | Type::Bool => return false,
+            Type::Array(elem, _) => vec![(**elem).clone()],
+            Type::Struct(id, _) => self.structs[id.0].fields.iter().map(|f| f.ty.clone()).collect(),
+            Type::Named(id, _) => vec![self.named[id.0].underlying.clone()],
+        };
 
-        self.structs[outer.0].fields.iter().any(|field| {
-            let mut ty = &field.ty;
-            while let Type::Array(elem, _) = ty {
-                ty = elem;
+        inner.iter().any(|ty| {
+            if ty == target {
+                return true;
             }
-
-            match ty {
-                Type::Struct(id, _) => *id == target || self.contains(visited, *id, target),
-                _ => false,
+            if visited.contains(ty) {
+                return false;
             }
+            visited.push(ty.clone());
+            self.contains(visited, ty, target)
         })
     }
 
@@ -230,7 +359,7 @@ impl Types {
                 Some(Type::Array(Box::new(self.resolve(elem, errors)?), *len))
             }
             ast::TypeExprKind::Named(name) => match self.by_name.get(&name.name) {
-                Some(id) => Some(Type::Struct(*id, Rc::from(name.name.as_str()))),
+                Some(ty) => Some(ty.clone()),
                 None => {
                     errors.push(Error::new(format!("unknown type `{}`", name.name), name.span));
                     None
@@ -238,12 +367,153 @@ impl Types {
             },
         }
     }
+
+    /// The type with named non-struct types replaced by what they name, at
+    /// the top level only: `[NodeId; 2]` stays as it is.
+    fn underlying(&self, ty: &Type) -> Type {
+        let mut ty = ty.clone();
+        while let Type::Named(id, _) = ty {
+            ty = self.named[id.0].underlying.clone();
+        }
+        ty
+    }
+
+    /// The type with every named non-struct type replaced, as later stages
+    /// see it.
+    fn erase(&self, ty: &Type) -> Type {
+        match ty {
+            Type::I32 | Type::Bool | Type::Struct(..) => ty.clone(),
+            Type::Array(elem, len) => Type::Array(Box::new(self.erase(elem)), *len),
+            Type::Named(..) => self.erase(&self.underlying(ty)),
+        }
+    }
+
+    /// Whether values convert between `a` and `b`: they have the same
+    /// underlying type, or are structs with the same fields.
+    fn convertible(&self, a: &Type, b: &Type) -> bool {
+        let (a, b) = (self.underlying(a), self.underlying(b));
+
+        if a == b {
+            return true;
+        }
+
+        match (&a, &b) {
+            (Type::Struct(x, _), Type::Struct(y, _)) => {
+                let (x, y) = (&self.structs[x.0].fields, &self.structs[y.0].fields);
+                x.len() == y.len()
+                    && x.iter().zip(y).all(|(f, g)| f.name == g.name && f.ty == g.ty)
+            }
+            _ => false,
+        }
+    }
+
+    fn erase_function(&self, function: &mut hir::Function) {
+        for local in &mut function.locals {
+            local.ty = self.erase(&local.ty);
+        }
+        for ty in &mut function.returns {
+            *ty = self.erase(ty);
+        }
+        self.erase_block(&mut function.body);
+    }
+
+    fn erase_block(&self, block: &mut hir::Block) {
+        for stmt in &mut block.stmts {
+            match &mut stmt.kind {
+                hir::StmtKind::Assign { targets, values } => {
+                    targets.iter_mut().for_each(|t| self.erase_place(t));
+                    values.iter_mut().for_each(|v| self.erase_value(v));
+                }
+                hir::StmtKind::Call(call) => self.erase_call(call),
+                hir::StmtKind::If {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
+                    self.erase_expr(cond);
+                    self.erase_block(then_block);
+                    self.erase_block(else_block);
+                }
+                hir::StmtKind::While { cond, body } => {
+                    self.erase_expr(cond);
+                    self.erase_block(body);
+                }
+                hir::StmtKind::Return(values) => {
+                    values.iter_mut().for_each(|v| self.erase_value(v))
+                }
+            }
+        }
+    }
+
+    fn erase_place(&self, place: &mut hir::Place) {
+        for elem in &mut place.path {
+            if let hir::PlaceElem::Index(index) = elem {
+                self.erase_expr(index);
+            }
+        }
+    }
+
+    fn erase_value(&self, value: &mut hir::Value) {
+        match value {
+            hir::Value::Single(expr) => self.erase_expr(expr),
+            hir::Value::Multi(call) => self.erase_call(call),
+        }
+    }
+
+    fn erase_call(&self, call: &mut hir::Call) {
+        match &mut call.receiver {
+            Some(hir::Receiver::Place(place)) => self.erase_place(place),
+            Some(hir::Receiver::Value(expr)) => self.erase_expr(expr),
+            None => {}
+        }
+        call.args.iter_mut().for_each(|v| self.erase_value(v));
+    }
+
+    fn erase_expr(&self, expr: &mut hir::Expr) {
+        expr.ty = self.erase(&expr.ty);
+
+        match &mut expr.kind {
+            hir::ExprKind::Int(_) | hir::ExprKind::Bool(_) | hir::ExprKind::Local(_) => {}
+            hir::ExprKind::Call(call) => self.erase_call(call),
+            hir::ExprKind::Binary { lhs, rhs, .. } => {
+                self.erase_expr(lhs);
+                self.erase_expr(rhs);
+            }
+            hir::ExprKind::ArrayList(elems) | hir::ExprKind::StructLit(_, elems) => {
+                elems.iter_mut().for_each(|e| self.erase_expr(e))
+            }
+            hir::ExprKind::ArrayRepeat(value, _) => self.erase_expr(value),
+            hir::ExprKind::Index { base, index } => {
+                self.erase_expr(base);
+                self.erase_expr(index);
+            }
+            hir::ExprKind::Field { base, .. } => self.erase_expr(base),
+            hir::ExprKind::Convert(inner) => self.erase_expr(inner),
+        }
+    }
+}
+
+/// A checked call and the types it returns.
+type CallResult = Option<(hir::Call, Vec<Type>)>;
+
+/// A value's type, where it is, and whether it is made only of literals
+/// (which adapt to named types).
+type Found = (Type, Span, bool);
+
+fn is_literal(expr: &hir::Expr) -> bool {
+    match &expr.kind {
+        hir::ExprKind::Int(_) | hir::ExprKind::Bool(_) => true,
+        hir::ExprKind::ArrayList(elems) => elems.iter().all(is_literal),
+        hir::ExprKind::ArrayRepeat(value, _) => is_literal(value),
+        _ => false,
+    }
 }
 
 struct FunctionChecker<'a> {
     types: &'a Types,
     signatures: &'a [Option<Signature>],
     functions_by_name: &'a HashMap<&'a str, FuncId>,
+    methods: &'a HashMap<(Type, String), FuncId>,
     errors: &'a mut Vec<Error>,
     returns: &'a [Type],
     locals: Vec<hir::Local>,
@@ -261,13 +531,57 @@ impl FunctionChecker<'_> {
         self.errors.push(Error::new(message, span));
     }
 
+    fn under(&self, ty: &Type) -> Type {
+        self.types.underlying(ty)
+    }
+
+    /// Whether a value of type `found` can be stored where `expected` is
+    /// needed without a conversion.
+    fn assignable(&self, found: &Type, literal: bool, expected: &Type) -> bool {
+        found == expected
+            || (literal && self.adapts(found, expected))
+            || ((matches!(found, Type::Array(..)) || matches!(expected, Type::Array(..)))
+                && self.under(found) == self.under(expected))
+    }
+
+    /// Whether a literal of type `found` (`1`, `[1, 2]`, `[0; 3]`) can be
+    /// read as a value of type `expected`.
+    fn adapts(&self, found: &Type, expected: &Type) -> bool {
+        if found == expected {
+            return true;
+        }
+
+        match (found, self.under(expected)) {
+            (Type::Array(found, n), Type::Array(expected, m)) => {
+                n == &m && self.adapts(found, &expected)
+            }
+            (found, expected) => *found == expected,
+        }
+    }
+
     fn function(mut self, function: &ast::Function, signature: &Signature) -> Option<hir::Function> {
         // Parameters and the top-level statements of the body share a scope,
         // so a body declaration can't shadow a parameter.
         self.scopes.push(HashMap::new());
 
+        let mut decls = vec![];
+        if let Some(receiver) = &function.receiver {
+            decls.push(ast::VarDecl {
+                name: ast::Ident {
+                    name: "this".to_string(),
+                    span: receiver.span,
+                },
+                ty: ast::TypeExpr {
+                    kind: ast::TypeExprKind::Named(receiver.clone()),
+                    span: receiver.span,
+                },
+                span: receiver.span,
+            });
+        }
+        decls.extend(function.params.iter().cloned());
+
         let mut params = vec![];
-        for (param, ty) in function.params.iter().zip(&signature.params) {
+        for (param, ty) in decls.iter().zip(&signature.params) {
             if let Some(id) = self.declare_typed(param, ty.clone()) {
                 self.assigned.insert(id);
                 params.push(id);
@@ -287,12 +601,18 @@ impl FunctionChecker<'_> {
             return None;
         }
 
-        if params.len() != function.params.len() {
+        if params.len() != decls.len() {
             return None;
         }
 
+        let name = match &function.receiver {
+            Some(receiver) => format!("{}.{}", receiver.name, function.name.name),
+            None => function.name.name.clone(),
+        };
+
         Some(hir::Function {
-            name: function.name.name.clone(),
+            name,
+            is_method: function.receiver.is_some(),
             params,
             returns: signature.returns.clone(),
             locals: self.locals,
@@ -341,7 +661,9 @@ impl FunctionChecker<'_> {
             return Some(id);
         }
 
-        if self.functions_by_name.contains_key(name) {
+        if name == "this" {
+            self.error("`this` can only be used in methods", ident.span);
+        } else if self.functions_by_name.contains_key(name) {
             self.error(format!("`{name}` is a function, not a variable"), ident.span);
         } else {
             self.error(format!("unknown variable `{name}`"), ident.span);
@@ -456,7 +778,25 @@ impl FunctionChecker<'_> {
                 )
             }
 
-            ast::StmtKind::Call(call) => (hir::StmtKind::Call(self.call(call, span)?), false),
+            ast::StmtKind::Call(call) => {
+                let (call, _) = self.call(call, span)?;
+                (hir::StmtKind::Call(call), false)
+            }
+
+            ast::StmtKind::Expr(ast::Expr {
+                kind:
+                    ast::ExprKind::MethodCall {
+                        receiver,
+                        method,
+                        args,
+                    },
+                ..
+            }) => {
+                let (call, _) = self.method_call(receiver, method, args, span)?;
+                (hir::StmtKind::Call(call), false)
+            }
+
+            ast::StmtKind::Expr(_) => unreachable!("the parser only allows method calls"),
 
             ast::StmtKind::If {
                 cond,
@@ -554,7 +894,7 @@ impl FunctionChecker<'_> {
         for elem in &target.path {
             match elem {
                 ast::PlaceElem::Index(index) => {
-                    let Type::Array(elem, len) = ty else {
+                    let Type::Array(elem, len) = self.under(&ty) else {
                         self.error(format!("cannot index into a value of type {ty}"), target.span);
                         return None;
                     };
@@ -576,7 +916,7 @@ impl FunctionChecker<'_> {
 
     /// Looks up field `name` on a value of type `ty`.
     fn field(&mut self, ty: &Type, name: &ast::Ident) -> Option<(usize, Type)> {
-        let Type::Struct(id, _) = ty else {
+        let Type::Struct(id, _) = self.under(ty) else {
             self.error(format!("{ty} has no field `{}`", name.name), name.span);
             return None;
         };
@@ -594,7 +934,7 @@ impl FunctionChecker<'_> {
     fn condition(&mut self, cond: &ast::Expr) -> Option<hir::Expr> {
         let cond = self.expr(cond)?;
 
-        if cond.ty != Type::Bool {
+        if self.under(&cond.ty) != Type::Bool {
             self.error(
                 format!("condition must be bool, found {}", cond.ty),
                 cond.span,
@@ -605,41 +945,61 @@ impl FunctionChecker<'_> {
         Some(cond)
     }
 
-    /// The return types of the function `name`, if it is one and its
-    /// signature resolved.
-    fn returns_of(&self, name: &str) -> Option<&[Type]> {
-        let func = self.functions_by_name.get(name)?;
-        let signature = self.signatures[func.0].as_ref()?;
-        Some(&signature.returns)
+    /// Checks a call or method call, if `expr` is one. Calls to types
+    /// (conversions and `Empty()`) are not calls here.
+    fn any_call(&mut self, expr: &ast::Expr) -> Option<CallResult> {
+        match &expr.kind {
+            ast::ExprKind::Call(call)
+                if self.functions_by_name.contains_key(call.callee.name.as_str())
+                    || !self.is_type_name(&call.callee.name) =>
+            {
+                Some(self.call(call, expr.span))
+            }
+            ast::ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => Some(self.method_call(receiver, method, args, expr.span)),
+            _ => None,
+        }
+    }
+
+    fn is_type_name(&self, name: &str) -> bool {
+        self.types.by_name.contains_key(name) || matches!(name, "i32" | "bool")
     }
 
     /// Checks a value list. Calls that don't return exactly one value
     /// contribute all their return values. Returns the values along with the
     /// type and source span of each individual value.
-    fn values(&mut self, items: &[ast::Expr]) -> Option<(Vec<hir::Value>, Vec<(Type, Span)>)> {
+    fn values(&mut self, items: &[ast::Expr]) -> Option<(Vec<hir::Value>, Vec<Found>)> {
         let mut values = vec![];
         let mut types = vec![];
         let mut ok = true;
 
         for item in items {
-            if let ast::ExprKind::Call(call) = &item.kind {
-                let returns = self.returns_of(&call.callee.name).map(<[Type]>::to_vec);
-
-                if let Some(returns) = returns.filter(|returns| returns.len() != 1) {
-                    types.extend(returns.into_iter().map(|ty| (ty, item.span)));
-
-                    match self.call(call, item.span) {
-                        Some(call) => values.push(hir::Value::Multi(call)),
-                        None => ok = false,
+            if let Some(result) = self.any_call(item) {
+                match result {
+                    Some((call, returns)) if returns.len() == 1 => {
+                        let ty = returns.into_iter().next().unwrap();
+                        types.push((ty.clone(), item.span, false));
+                        values.push(hir::Value::Single(hir::Expr {
+                            kind: hir::ExprKind::Call(call),
+                            ty,
+                            span: item.span,
+                        }));
                     }
-
-                    continue;
+                    Some((call, returns)) => {
+                        types.extend(returns.into_iter().map(|ty| (ty, item.span, false)));
+                        values.push(hir::Value::Multi(call));
+                    }
+                    None => ok = false,
                 }
+                continue;
             }
 
             match self.expr(item) {
                 Some(expr) => {
-                    types.push((expr.ty.clone(), expr.span));
+                    types.push((expr.ty.clone(), expr.span, is_literal(&expr)));
                     values.push(hir::Value::Single(expr));
                 }
                 None => ok = false,
@@ -652,7 +1012,7 @@ impl FunctionChecker<'_> {
     fn expect_values(
         &mut self,
         expected: &[Type],
-        found: &[(Type, Span)],
+        found: &[Found],
         span: Span,
         what: &str,
         noun: &str,
@@ -673,8 +1033,8 @@ impl FunctionChecker<'_> {
 
         let mut ok = true;
 
-        for (expected, (found, span)) in expected.iter().zip(found) {
-            if expected != found {
+        for (expected, (found, span, literal)) in expected.iter().zip(found) {
+            if !self.assignable(found, *literal, expected) {
                 self.error(format!("expected {expected}, found {found}"), *span);
                 ok = false;
             }
@@ -683,15 +1043,15 @@ impl FunctionChecker<'_> {
         ok.then_some(())
     }
 
-    fn call(&mut self, call: &ast::Call, span: Span) -> Option<hir::Call> {
+    fn call(&mut self, call: &ast::Call, span: Span) -> CallResult {
         let name = call.callee.name.as_str();
 
         let Some(&func) = self.functions_by_name.get(name) else {
             if self.find_local(name).is_some() {
                 self.error(format!("`{name}` is a variable, not a function"), call.callee.span);
-            } else if self.types.by_name.contains_key(name) {
+            } else if self.is_type_name(name) {
                 self.error(
-                    format!("struct `{name}` is built with named fields: `{name}(field: value, ...)`"),
+                    format!("`{name}` is a type; it can't be called here"),
                     call.callee.span,
                 );
             } else {
@@ -705,15 +1065,82 @@ impl FunctionChecker<'_> {
 
         // The signature didn't resolve; that was already reported.
         let signatures = self.signatures;
-        let params = &signatures[func.0].as_ref()?.params;
+        let signature = signatures[func.0].as_ref()?;
 
-        self.expect_values(params, &types, span, &format!("`{name}`"), "argument")?;
+        self.expect_values(&signature.params, &types, span, &format!("`{name}`"), "argument")?;
 
-        Some(hir::Call { func, args, span })
+        let call = hir::Call {
+            func,
+            receiver: None,
+            args,
+            span,
+        };
+        Some((call, signature.returns.clone()))
+    }
+
+    fn method_call(
+        &mut self,
+        receiver: &ast::Expr,
+        method: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+    ) -> CallResult {
+        let receiver = self.expr(receiver)?;
+        let key = (receiver.ty.clone(), method.name.clone());
+
+        let Some(&func) = self.methods.get(&key) else {
+            self.error(
+                format!("{} has no method `{}`", receiver.ty, method.name),
+                method.span,
+            );
+            return None;
+        };
+
+        let (args, types) = self.values(args)?;
+
+        let signatures = self.signatures;
+        let signature = signatures[func.0].as_ref()?;
+        let name = format!("`{}.{}`", receiver.ty, method.name);
+
+        self.expect_values(&signature.params[1..], &types, span, &name, "argument")?;
+
+        let call = hir::Call {
+            func,
+            receiver: Some(into_receiver(receiver)),
+            args,
+            span,
+        };
+        Some((call, signature.returns.clone()))
     }
 
     fn expr(&mut self, expr: &ast::Expr) -> Option<hir::Expr> {
         let span = expr.span;
+
+        if let Some(result) = self.any_call(expr) {
+            let (call, returns) = result?;
+
+            let [ty] = &returns[..] else {
+                let name = match &expr.kind {
+                    ast::ExprKind::Call(call) => call.callee.name.clone(),
+                    ast::ExprKind::MethodCall { method, .. } => method.name.clone(),
+                    _ => unreachable!(),
+                };
+                self.error(
+                    format!(
+                        "`{name}` returns {} values, but one value is expected here",
+                        returns.len()
+                    ),
+                    span,
+                );
+                return None;
+            };
+
+            return Some(hir::Expr {
+                kind: hir::ExprKind::Call(call),
+                ty: ty.clone(),
+                span,
+            });
+        }
 
         let (kind, ty) = match &expr.kind {
             ast::ExprKind::Int(value) => (hir::ExprKind::Int(*value), Type::I32),
@@ -734,49 +1161,37 @@ impl FunctionChecker<'_> {
                 (hir::ExprKind::Local(id), self.locals[id.0].ty.clone())
             }
 
-            // `Empty()` builds a struct without fields.
-            ast::ExprKind::Call(call)
-                if call.args.is_empty()
-                    && !self.functions_by_name.contains_key(call.callee.name.as_str())
-                    && self.types.by_name.contains_key(&call.callee.name) =>
-            {
-                return self.struct_lit(&call.callee, &[], span);
-            }
+            // A call to a type: `Empty()`, or a conversion like `NodeId(x)`.
+            ast::ExprKind::Call(call) => return self.type_call(call, span),
 
-            ast::ExprKind::Call(call) => {
-                let name = &call.callee.name;
-                let call = self.call(call, span)?;
-                let returns = self.returns_of(name)?.to_vec();
-
-                let [ty] = &returns[..] else {
-                    self.error(
-                        format!(
-                            "`{name}` returns {} values, but one value is expected here",
-                            returns.len()
-                        ),
-                        span,
-                    );
-                    return None;
-                };
-
-                (hir::ExprKind::Call(call), ty.clone())
-            }
+            ast::ExprKind::MethodCall { .. } => unreachable!("handled as a call"),
 
             ast::ExprKind::Binary { op, lhs, rhs } => {
                 let lhs = self.expr(lhs);
                 let rhs = self.expr(rhs);
                 let (lhs, rhs) = (lhs?, rhs?);
 
-                let ty = match (op, &lhs.ty, &rhs.ty) {
-                    (BinOp::Add | BinOp::Sub, Type::I32, Type::I32) => Type::I32,
-                    (BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, Type::I32, Type::I32) => {
+                // A literal adapts to a named type on the other side.
+                let common = if lhs.ty == rhs.ty {
+                    Some(lhs.ty.clone())
+                } else if is_literal(&rhs) && self.adapts(&rhs.ty, &lhs.ty) {
+                    Some(lhs.ty.clone())
+                } else if is_literal(&lhs) && self.adapts(&lhs.ty, &rhs.ty) {
+                    Some(rhs.ty.clone())
+                } else {
+                    None
+                };
+
+                let ty = match (op, common.as_ref().map(|ty| (ty, self.under(ty)))) {
+                    (BinOp::Add | BinOp::Sub, Some((ty, Type::I32))) => ty.clone(),
+                    (BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, Some((_, Type::I32))) => {
                         Type::Bool
                     }
-                    (BinOp::Eq | BinOp::Ne, l, r) if l == r && l.is_scalar() => Type::Bool,
+                    (BinOp::Eq | BinOp::Ne, Some((_, Type::I32 | Type::Bool))) => Type::Bool,
 
-                    (op, l, r) => {
+                    (op, _) => {
                         self.error(
-                            format!("cannot apply `{}` to {l} and {r}", op.as_str()),
+                            format!("cannot apply `{}` to {} and {}", op.as_str(), lhs.ty, rhs.ty),
                             span,
                         );
                         return None;
@@ -844,7 +1259,7 @@ impl FunctionChecker<'_> {
             ast::ExprKind::Index { base, index } => {
                 let base = self.expr(base)?;
 
-                let Type::Array(elem, len) = base.ty.clone() else {
+                let Type::Array(elem, len) = self.under(&base.ty) else {
                     self.error(format!("cannot index into a value of type {}", base.ty), base.span);
                     return None;
                 };
@@ -881,13 +1296,54 @@ impl FunctionChecker<'_> {
         Some(hir::Expr { kind, ty, span })
     }
 
+    /// `Name(...)` where `Name` is a type: `Empty()` for a struct without
+    /// fields, or a conversion `Name(value)`.
+    fn type_call(&mut self, call: &ast::Call, span: Span) -> Option<hir::Expr> {
+        let name = &call.callee.name;
+
+        let target = match name.as_str() {
+            "i32" => Type::I32,
+            "bool" => Type::Bool,
+            _ => self.types.by_name[name].clone(),
+        };
+
+        if call.args.is_empty() && matches!(target, Type::Struct(..)) {
+            return self.struct_lit(&call.callee, &[], span);
+        }
+
+        let [arg] = &call.args[..] else {
+            if matches!(target, Type::Struct(..)) {
+                self.error(
+                    format!("struct `{name}` is built with named fields: `{name}(field: value, ...)`"),
+                    call.callee.span,
+                );
+            } else {
+                self.error(format!("a conversion to `{name}` takes one value"), span);
+            }
+            return None;
+        };
+
+        let value = self.expr(arg)?;
+
+        if !self.types.convertible(&value.ty, &target) {
+            self.error(format!("cannot convert {} to {target}", value.ty), value.span);
+            return None;
+        }
+
+        Some(hir::Expr {
+            kind: hir::ExprKind::Convert(Box::new(value)),
+            ty: target,
+            span,
+        })
+    }
+
     fn struct_lit(
         &mut self,
         name: &ast::Ident,
         fields: &[(ast::Ident, ast::Expr)],
         span: Span,
     ) -> Option<hir::Expr> {
-        let Some(&id) = self.types.by_name.get(&name.name) else {
+        let Some(Type::Struct(id, _)) = self.types.by_name.get(&name.name).cloned() else {
             self.error(format!("unknown struct `{}`", name.name), name.span);
             return None;
         };
@@ -918,7 +1374,7 @@ impl FunctionChecker<'_> {
             };
 
             let expected = &def.fields[index].ty;
-            if value.ty != *expected {
+            if !self.assignable(&value.ty, is_literal(&value), expected) {
                 self.error(format!("expected {expected}, found {}", value.ty), value.span);
                 ok = false;
             }
@@ -936,7 +1392,11 @@ impl FunctionChecker<'_> {
 
         if ok && !missing.is_empty() {
             self.error(
-                format!("missing field{} {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ")),
+                format!(
+                    "missing field{} {}",
+                    if missing.len() == 1 { "" } else { "s" },
+                    missing.join(", ")
+                ),
                 span,
             );
             return None;
@@ -957,7 +1417,7 @@ impl FunctionChecker<'_> {
     fn index(&mut self, index: &ast::Expr, len: u32) -> Option<hir::Expr> {
         let index = self.expr(index)?;
 
-        if index.ty != Type::I32 {
+        if self.under(&index.ty) != Type::I32 {
             self.error(format!("array index must be i32, found {}", index.ty), index.span);
             return None;
         }
@@ -973,6 +1433,44 @@ impl FunctionChecker<'_> {
         }
 
         Some(index)
+    }
+}
+
+/// A method receiver: a place if `expr` names a variable or a part of one,
+/// otherwise a plain value.
+fn into_receiver(expr: hir::Expr) -> hir::Receiver {
+    fn is_place(expr: &hir::Expr) -> bool {
+        match &expr.kind {
+            hir::ExprKind::Local(_) => true,
+            hir::ExprKind::Index { base, .. } | hir::ExprKind::Field { base, .. } => is_place(base),
+            _ => false,
+        }
+    }
+
+    fn into_place(expr: hir::Expr) -> hir::Place {
+        match expr.kind {
+            hir::ExprKind::Local(local) => hir::Place {
+                local,
+                path: vec![],
+            },
+            hir::ExprKind::Index { base, index } => {
+                let mut place = into_place(*base);
+                place.path.push(hir::PlaceElem::Index(*index));
+                place
+            }
+            hir::ExprKind::Field { base, field } => {
+                let mut place = into_place(*base);
+                place.path.push(hir::PlaceElem::Field(field));
+                place
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    if is_place(&expr) {
+        hir::Receiver::Place(into_place(expr))
+    } else {
+        hir::Receiver::Value(Box::new(expr))
     }
 }
 
@@ -1155,7 +1653,7 @@ mod tests {
         }
     }
 
-    const POINT: &str = "struct Point { x: i32, y: i32 }";
+    const POINT: &str = "type Point struct { x: i32, y: i32 }";
 
     #[test]
     fn unknown_type() {
@@ -1216,7 +1714,7 @@ mod tests {
     #[test]
     fn recursive_struct() {
         let errors = check_source(
-            "struct A { b: [B; 2] } struct B { a: A } fn main(): i32 { return 0 }",
+            "type A struct { b: [B; 2] } type B struct { a: A } fn main(): i32 { return 0 }",
         )
         .unwrap_err();
         // Both structs are part of the cycle.
@@ -1224,16 +1722,16 @@ mod tests {
         assert_eq!(
             messages,
             [
-                "struct `A` contains itself, so it would have infinite size",
-                "struct `B` contains itself, so it would have infinite size",
+                "type `A` contains itself, so it would have infinite size",
+                "type `B` contains itself, so it would have infinite size",
             ]
         );
     }
 
     #[test]
     fn struct_and_function_with_the_same_name() {
-        let (message, _) = error("struct main {} fn main(): i32 { return 0 }");
-        assert_eq!(message, "`main` is defined as both a struct and a function");
+        let (message, _) = error("type main struct {} fn main(): i32 { return 0 }");
+        assert_eq!(message, "`main` is defined as both a type and a function");
     }
 
     #[test]
@@ -1251,6 +1749,135 @@ mod tests {
         let (message, at) = error(&source);
         assert_eq!(message, "`p` is used before it is assigned");
         assert_eq!(at, "p");
+    }
+
+    const NODE_ID: &str = "type NodeId i32";
+
+    #[test]
+    fn named_types_are_distinct() {
+        let source = format!(
+            "{NODE_ID} fn main(): i32 {{ id: NodeId i: i32 i = 1 id = i return 0 }}"
+        );
+        let (message, at) = error(&source);
+        assert_eq!(message, "expected NodeId, found i32");
+        assert_eq!(at, "i");
+    }
+
+    #[test]
+    fn literals_adapt_to_named_types() {
+        check_source(&format!(
+            "{NODE_ID}
+             type Ids [NodeId; 2]
+             fn main(): i32 {{
+               id: NodeId
+               ids: Ids
+               id = 1
+               id = id + 1
+               ids = [0, 1]
+               ids = [0; 2]
+               if id == 2 {{ return 0 }}
+               return i32(id)
+             }}"
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn mixing_named_and_plain_operands() {
+        let source = format!(
+            "{NODE_ID} fn main(): i32 {{ id: NodeId i: i32 id, i = 1, 1 return i32(id + i) }}"
+        );
+        let (message, _) = error(&source);
+        assert_eq!(message, "cannot apply `+` to NodeId and i32");
+    }
+
+    #[test]
+    fn conversion_between_unrelated_types() {
+        let source = format!("{NODE_ID} fn main(): i32 {{ return i32(NodeId(true)) }}");
+        let (message, at) = error(&source);
+        assert_eq!(message, "cannot convert bool to NodeId");
+        assert_eq!(at, "true");
+    }
+
+    #[test]
+    fn struct_conversion_needs_same_fields() {
+        check_source(
+            "type A struct { x: i32 }
+             type B struct { x: i32 }
+             fn main(): i32 { a: A a = A(x: 1) b: B b = B(a) return b.x - 1 }",
+        )
+        .unwrap();
+
+        let (message, _) = error(
+            "type A struct { x: i32 }
+             type C struct { y: i32 }
+             fn main(): i32 { a: A a = A(x: 1) c: C c = C(a) return 0 }",
+        );
+        assert_eq!(message, "cannot convert A to C");
+    }
+
+    #[test]
+    fn unknown_method() {
+        let source = format!(
+            "{POINT} fn main(): i32 {{ p: Point p = Point(x: 1, y: 2) return p.len() }}"
+        );
+        let (message, at) = error(&source);
+        assert_eq!(message, "Point has no method `len`");
+        assert_eq!(at, "len");
+    }
+
+    #[test]
+    fn this_outside_a_method() {
+        let (message, _) = error("fn main(): i32 { return this }");
+        assert_eq!(message, "`this` can only be used in methods");
+    }
+
+    #[test]
+    fn methods_on_builtin_types() {
+        let (message, _) = error("fn i32.double(): i32 { return this } fn main(): i32 { return 0 }");
+        assert_eq!(message, "methods can only be defined on types declared with `type`");
+    }
+
+    #[test]
+    fn field_and_method_with_the_same_name() {
+        let source = format!("{POINT} fn Point.x(): i32 {{ return 0 }} fn main(): i32 {{ return 0 }}");
+        let (message, _) = error(&source);
+        assert_eq!(message, "Point has both a field and a method called `x`");
+    }
+
+    #[test]
+    fn duplicate_method() {
+        let source = format!(
+            "{POINT} fn Point.m() {{}} fn Point.m() {{}} fn main(): i32 {{ return 0 }}"
+        );
+        let (message, _) = error(&source);
+        assert_eq!(message, "method `Point.m` is already defined");
+    }
+
+    #[test]
+    fn method_argument_count() {
+        let source = format!(
+            "{POINT} fn Point.shift(d: i32) {{ this.x = this.x + d }}
+             fn main(): i32 {{ p: Point p = Point(x: 1, y: 2) p.shift() return 0 }}"
+        );
+        let (message, _) = error(&source);
+        assert_eq!(message, "`Point.shift` expects 1 argument, found 0");
+    }
+
+    #[test]
+    fn method_and_function_with_the_same_name() {
+        check_source(&format!(
+            "{POINT} fn len(): i32 {{ return 0 }}
+             fn Point.len(): i32 {{ return this.x }}
+             fn main(): i32 {{ p: Point p = Point(x: 0, y: 0) return len() + p.len() }}"
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn named_type_containing_itself() {
+        let errors = check_source("type A [A; 2] fn main(): i32 { return 0 }").unwrap_err();
+        assert_eq!(errors[0].message, "type `A` contains itself, so it would have infinite size");
     }
 
     #[test]

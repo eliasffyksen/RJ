@@ -10,14 +10,16 @@ pub fn write(module: &Module, out: &mut dyn Write) -> io::Result<()> {
     let mut graph = Graph { out, next_id: 0 };
     let root = graph.node("Module")?;
 
-    for def in &module.structs {
-        let fields = def
-            .fields
-            .iter()
-            .map(|field| format!("{}: {}", field.name.name, field.ty))
-            .collect::<Vec<_>>()
-            .join("|");
-        let child = graph.node(&format!("Struct|{}|{fields}", def.name.name))?;
+    for def in &module.types {
+        let body = match &def.body {
+            TypeDefBody::Struct(fields) => fields
+                .iter()
+                .map(|field| format!("{}: {}", field.name.name, field.ty))
+                .collect::<Vec<_>>()
+                .join("|"),
+            TypeDefBody::Type(ty) => ty.to_string(),
+        };
+        let child = graph.node(&format!("Type|{}|{body}", def.name.name))?;
         graph.edge(root, child)?;
     }
 
@@ -62,10 +64,11 @@ impl Graph<'_> {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let node = self.node(&format!(
-            "Function|{}|returns: {}",
-            function.name.name, returns
-        ))?;
+        let name = match &function.receiver {
+            Some(receiver) => format!("{}.{}", receiver.name, function.name.name),
+            None => function.name.name.clone(),
+        };
+        let node = self.node(&format!("Function|{name}|returns: {returns}"))?;
 
         for param in &function.params {
             let child = self.node(&format!("Param|{}: {}", param.name.name, param.ty))?;
@@ -150,6 +153,8 @@ impl Graph<'_> {
                 Ok(node)
             }
 
+            StmtKind::Expr(expr) => self.expr(expr),
+
             StmtKind::Return(values) => {
                 let node = self.node("Return")?;
                 self.exprs(node, values)?;
@@ -194,6 +199,17 @@ impl Graph<'_> {
                 let node = self.node(&format!("Field|{}", field.name))?;
                 let child = self.expr(base)?;
                 self.edge(node, child)?;
+                Ok(node)
+            }
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                let node = self.node(&format!("Method|{}", method.name))?;
+                let child = self.expr(receiver)?;
+                self.edge(node, child)?;
+                self.exprs(node, args)?;
                 Ok(node)
             }
             ExprKind::StructLit { name, fields } => {

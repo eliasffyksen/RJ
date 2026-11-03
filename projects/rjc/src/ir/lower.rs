@@ -4,18 +4,26 @@ use super::*;
 use crate::hir;
 
 pub fn lower(program: &hir::Program) -> Program {
+    let writes_this = writes_this(program);
+
     Program {
         functions: program
             .functions
             .iter()
-            .map(|function| lower_function(program, function))
+            .enumerate()
+            .map(|(i, function)| lower_function(program, &writes_this, i, function))
             .collect(),
         structs: program.structs.clone(),
         main: program.main,
     }
 }
 
-fn lower_function(program: &hir::Program, function: &hir::Function) -> Function {
+fn lower_function(
+    program: &hir::Program,
+    writes_this: &[bool],
+    index: usize,
+    function: &hir::Function,
+) -> Function {
     // HIR locals keep their ids; return slots and temporaries come after.
     let locals = function
         .locals
@@ -33,8 +41,10 @@ fn lower_function(program: &hir::Program, function: &hir::Function) -> Function 
 
     let mut builder = Builder {
         program,
+        writes_this,
         locals,
         returns: vec![],
+        this_slot: None,
         blocks: vec![],
         current: None,
     };
@@ -45,6 +55,18 @@ fn lower_function(program: &hir::Program, function: &hir::Function) -> Function 
         .map(|ty| builder.new_local(ty.clone(), LocalKind::Return))
         .collect();
 
+    // A method that changes `this` hands it back as an extra, last return
+    // value, which the caller writes back to the receiver. Every return
+    // writes it from `this`, so `this` comes out as an in/out parameter.
+    if writes_this[index] {
+        let this = function.params[0];
+        let ty = builder.locals[this.0].ty.clone();
+        let slot = builder.new_local(ty, LocalKind::Return);
+
+        builder.returns.push(slot);
+        builder.this_slot = Some((this, slot));
+    }
+
     let entry = builder.new_block();
     builder.current = Some(entry);
     builder.block(&function.body);
@@ -53,6 +75,7 @@ fn lower_function(program: &hir::Program, function: &hir::Function) -> Function 
     // fall off the end of their body.
     if builder.current.is_some() {
         debug_assert!(function.returns.is_empty());
+        builder.return_this();
         builder.terminate(Terminator::Return);
     }
 
@@ -74,8 +97,13 @@ fn lower_function(program: &hir::Program, function: &hir::Function) -> Function 
 
 struct Builder<'a> {
     program: &'a hir::Program,
+    /// Which methods change `this`, by `FuncId`.
+    writes_this: &'a [bool],
     locals: Vec<Local>,
     returns: Vec<LocalId>,
+    /// `this` and the return slot it is handed back in, for methods that
+    /// change it.
+    this_slot: Option<(LocalId, LocalId)>,
     blocks: Vec<(Vec<Stmt>, Option<Terminator>)>,
     /// The block statements are appended to; `None` after a `return`.
     current: Option<BlockId>,
@@ -156,8 +184,18 @@ impl Builder<'_> {
                     }
                 }
 
+                self.return_this();
                 self.terminate(Terminator::Return);
             }
+        }
+    }
+
+    fn return_this(&mut self) {
+        if let Some((this, slot)) = self.this_slot {
+            self.push(Stmt::Assign {
+                dest: slot,
+                value: Rvalue::Use(Operand::Local(this)),
+            });
         }
     }
 
@@ -364,8 +402,63 @@ impl Builder<'_> {
 
     /// `shared` is a destination place with its source form; an argument
     /// naming the same place is passed as that exact place.
-    fn call_to(&mut self, call: &hir::Call, dests: Vec<Place>, shared: Option<(&hir::Place, &Place)>) {
-        let args = self.args(&call.args, shared);
+    fn call_to(
+        &mut self,
+        call: &hir::Call,
+        mut dests: Vec<Place>,
+        shared: Option<(&hir::Place, &Place)>,
+    ) {
+        let mut args = vec![];
+
+        if let Some(receiver) = &call.receiver {
+            let method = self.program.function(call.func);
+            let ty = method.locals[method.params[0].0].ty.clone();
+            let writes = self.writes_this[call.func.0];
+
+            match receiver {
+                hir::Receiver::Place(place) => {
+                    let place = Place {
+                        local: place.local,
+                        path: self.path(&place.path, false),
+                    };
+
+                    args.push(if place.path.is_empty() {
+                        CallArg::Value(Operand::Local(place.local))
+                    } else if ty.is_aggregate() {
+                        CallArg::Place(place.clone())
+                    } else {
+                        // Scalars are passed by value.
+                        let temp = self.new_temp(ty.clone());
+                        self.push(Stmt::Assign {
+                            dest: temp,
+                            value: Rvalue::Read(place.local, place.path.clone()),
+                        });
+                        CallArg::Value(Operand::Local(temp))
+                    });
+
+                    // The changed `this` is written back to the receiver.
+                    if writes {
+                        dests.push(place);
+                    }
+                }
+
+                // Changes to a value that isn't a variable are discarded.
+                hir::Receiver::Value(expr) => {
+                    let operand = self.operand(expr);
+                    args.push(CallArg::Value(operand));
+
+                    if writes {
+                        let dest = match operand {
+                            Operand::Local(temp) => temp,
+                            _ => self.new_temp(ty),
+                        };
+                        dests.push(Place::whole(dest));
+                    }
+                }
+            }
+        }
+
+        args.extend(self.args(&call.args, shared));
 
         self.push(Stmt::Call {
             func: call.func,
@@ -464,6 +557,8 @@ impl Builder<'_> {
     /// Lowers an expression to an operand, using a temporary if needed.
     fn operand(&mut self, expr: &hir::Expr) -> Operand {
         match &expr.kind {
+            // Converted values are stored the same way.
+            hir::ExprKind::Convert(inner) => self.operand(inner),
             hir::ExprKind::Int(value) => Operand::Int(*value),
             hir::ExprKind::Bool(value) => Operand::Bool(*value),
             hir::ExprKind::Local(id) => Operand::Local(*id),
@@ -484,6 +579,8 @@ impl Builder<'_> {
     /// Lowers an expression, storing its value in `dest`.
     fn expr_into(&mut self, expr: &hir::Expr, dest: LocalId) {
         match &expr.kind {
+            hir::ExprKind::Convert(inner) => self.expr_into(inner, dest),
+
             hir::ExprKind::Call(call) => self.call(call, vec![dest]),
 
             hir::ExprKind::Binary { op, lhs, rhs } => {
@@ -555,15 +652,31 @@ impl Builder<'_> {
 fn reads_any(value: &hir::Value, locals: &[LocalId]) -> bool {
     match value {
         hir::Value::Single(expr) => expr_reads_any(expr, locals),
-        hir::Value::Multi(call) => call.args.iter().any(|arg| reads_any(arg, locals)),
+        hir::Value::Multi(call) => call_reads_any(call, locals),
     }
+}
+
+fn call_reads_any(call: &hir::Call, locals: &[LocalId]) -> bool {
+    let receiver = match &call.receiver {
+        Some(hir::Receiver::Place(place)) => {
+            locals.contains(&place.local)
+                || place.path.iter().any(|elem| match elem {
+                    hir::PlaceElem::Index(index) => expr_reads_any(index, locals),
+                    hir::PlaceElem::Field(_) => false,
+                })
+        }
+        Some(hir::Receiver::Value(expr)) => expr_reads_any(expr, locals),
+        None => false,
+    };
+
+    receiver || call.args.iter().any(|arg| reads_any(arg, locals))
 }
 
 fn expr_reads_any(expr: &hir::Expr, locals: &[LocalId]) -> bool {
     match &expr.kind {
         hir::ExprKind::Int(_) | hir::ExprKind::Bool(_) => false,
         hir::ExprKind::Local(id) => locals.contains(id),
-        hir::ExprKind::Call(call) => call.args.iter().any(|arg| reads_any(arg, locals)),
+        hir::ExprKind::Call(call) => call_reads_any(call, locals),
         hir::ExprKind::Binary { lhs, rhs, .. } => {
             expr_reads_any(lhs, locals) || expr_reads_any(rhs, locals)
         }
@@ -573,6 +686,7 @@ fn expr_reads_any(expr: &hir::Expr, locals: &[LocalId]) -> bool {
             expr_reads_any(base, locals) || expr_reads_any(index, locals)
         }
         hir::ExprKind::Field { base, .. } => expr_reads_any(base, locals),
+        hir::ExprKind::Convert(inner) => expr_reads_any(inner, locals),
         hir::ExprKind::StructLit(_, fields) => fields.iter().any(|f| expr_reads_any(f, locals)),
     }
 }
@@ -632,5 +746,91 @@ fn expr_eq(a: &hir::Expr, b: &hir::Expr) -> bool {
             field == field2 && expr_eq(base, base2)
         }
         _ => false,
+    }
+}
+
+/// Which methods change `this`: by assigning to it or a part of it, or by
+/// calling a method that changes it on `this` or a part of it. Iterates to
+/// a fixpoint, since methods can call each other.
+fn writes_this(program: &hir::Program) -> Vec<bool> {
+    let mut writes = vec![false; program.functions.len()];
+
+    loop {
+        let mut changed = false;
+
+        for (i, function) in program.functions.iter().enumerate() {
+            if function.is_method && !writes[i] {
+                let this = function.params[0];
+
+                if block_writes(&function.body, this, &writes) {
+                    writes[i] = true;
+                    changed = true;
+                }
+            }
+        }
+
+        if !changed {
+            return writes;
+        }
+    }
+}
+
+fn block_writes(block: &hir::Block, this: LocalId, writes: &[bool]) -> bool {
+    block.stmts.iter().any(|stmt| match &stmt.kind {
+        hir::StmtKind::Assign { targets, values } => {
+            targets.iter().any(|target| target.local == this)
+                || values.iter().any(|value| value_writes(value, this, writes))
+        }
+        hir::StmtKind::Call(call) => call_writes(call, this, writes),
+        hir::StmtKind::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            expr_writes(cond, this, writes)
+                || block_writes(then_block, this, writes)
+                || block_writes(else_block, this, writes)
+        }
+        hir::StmtKind::While { cond, body } => {
+            expr_writes(cond, this, writes) || block_writes(body, this, writes)
+        }
+        hir::StmtKind::Return(values) => values.iter().any(|v| value_writes(v, this, writes)),
+    })
+}
+
+fn value_writes(value: &hir::Value, this: LocalId, writes: &[bool]) -> bool {
+    match value {
+        hir::Value::Single(expr) => expr_writes(expr, this, writes),
+        hir::Value::Multi(call) => call_writes(call, this, writes),
+    }
+}
+
+fn call_writes(call: &hir::Call, this: LocalId, writes: &[bool]) -> bool {
+    let receiver = match &call.receiver {
+        Some(hir::Receiver::Place(place)) => place.local == this && writes[call.func.0],
+        Some(hir::Receiver::Value(expr)) => expr_writes(expr, this, writes),
+        None => false,
+    };
+
+    receiver || call.args.iter().any(|arg| value_writes(arg, this, writes))
+}
+
+fn expr_writes(expr: &hir::Expr, this: LocalId, writes: &[bool]) -> bool {
+    match &expr.kind {
+        hir::ExprKind::Int(_) | hir::ExprKind::Bool(_) | hir::ExprKind::Local(_) => false,
+        hir::ExprKind::Call(call) => call_writes(call, this, writes),
+        hir::ExprKind::Binary { lhs, rhs, .. } => {
+            expr_writes(lhs, this, writes) || expr_writes(rhs, this, writes)
+        }
+        hir::ExprKind::ArrayList(elems) | hir::ExprKind::StructLit(_, elems) => {
+            elems.iter().any(|e| expr_writes(e, this, writes))
+        }
+        hir::ExprKind::ArrayRepeat(value, _) => expr_writes(value, this, writes),
+        hir::ExprKind::Index { base, index } => {
+            expr_writes(base, this, writes) || expr_writes(index, this, writes)
+        }
+        hir::ExprKind::Field { base, .. } | hir::ExprKind::Convert(base) => {
+            expr_writes(base, this, writes)
+        }
     }
 }

@@ -14,19 +14,28 @@ use crate::diagnostic::Span;
 
 #[derive(Debug)]
 pub struct Module {
-    pub structs: Vec<StructDef>,
+    pub types: Vec<TypeDef>,
     pub functions: Vec<Function>,
 }
 
+/// `type Name struct { ... }` or `type Name <type>`.
 #[derive(Debug)]
-pub struct StructDef {
+pub struct TypeDef {
     pub name: Ident,
-    pub fields: Vec<VarDecl>,
+    pub body: TypeDefBody,
     pub span: Span,
 }
 
 #[derive(Debug)]
+pub enum TypeDefBody {
+    Struct(Vec<VarDecl>),
+    Type(TypeExpr),
+}
+
+#[derive(Debug)]
 pub struct Function {
+    /// The type `T` of a method `fn T.name(...)`.
+    pub receiver: Option<Ident>,
     pub name: Ident,
     pub params: Vec<VarDecl>,
     pub returns: Vec<TypeExpr>,
@@ -34,7 +43,7 @@ pub struct Function {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VarDecl {
     pub name: Ident,
     pub ty: TypeExpr,
@@ -71,6 +80,8 @@ pub enum StmtKind {
         body: Block,
     },
     Return(Vec<Expr>),
+    /// A method call used as a statement.
+    Expr(Expr),
 }
 
 #[derive(Debug)]
@@ -103,6 +114,12 @@ pub enum ExprKind {
     Field {
         base: Box<Expr>,
         field: Ident,
+    },
+    /// `receiver.method(args)`
+    MethodCall {
+        receiver: Box<Expr>,
+        method: Ident,
+        args: Vec<Expr>,
     },
     /// `Name(field: value, ...)`
     StructLit {

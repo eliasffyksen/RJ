@@ -40,7 +40,10 @@ impl Program {
 
 #[derive(Debug)]
 pub struct Function {
+    /// `Type.method` for methods.
     pub name: String,
+    /// Methods take the receiver, `this`, as their first parameter.
+    pub is_method: bool,
     /// The first `params.len()` locals are the parameters, in order.
     pub params: Vec<LocalId>,
     pub returns: Vec<Type>,
@@ -151,11 +154,26 @@ pub enum ExprKind {
     },
     /// Field values in declaration order.
     StructLit(StructId, Vec<Expr>),
+    /// A conversion between types with the same underlying type. Only the
+    /// type changes.
+    Convert(Box<Expr>),
 }
 
+/// A function call, or a method call when `receiver` is set. The receiver
+/// is the method's first parameter and is not part of `args`.
 #[derive(Debug)]
 pub struct Call {
     pub func: FuncId,
+    pub receiver: Option<Receiver>,
     pub args: Vec<Value>,
     pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum Receiver {
+    /// A variable or part of one. If the method changes `this`, the result
+    /// is written back to it.
+    Place(Place),
+    /// Any other value. Changes the method makes to `this` are discarded.
+    Value(Box<Expr>),
 }

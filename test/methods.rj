@@ -1,0 +1,129 @@
+type NodeId i32
+
+type Node struct {
+  value: i32,
+  edges: [NodeId; 2],
+  count: i32,
+}
+
+type Graph struct {
+  nodes: [Node; 4],
+  size: i32,
+}
+
+type Grid [[i32; 2]; 2]
+
+// Changes `this`: the caller's graph is updated.
+fn Graph.add_node(value: i32): NodeId {
+  id: NodeId
+  id = NodeId(this.size)
+  this.nodes[this.size] = Node(value: value, edges: [0, 0], count: 0)
+  this.size = this.size + 1
+  return id
+}
+
+fn Graph.add_edge(from: NodeId, to: NodeId) {
+  this.nodes[from].add(to)
+}
+
+fn Node.add(to: NodeId) {
+  this.edges[this.count] = to
+  this.count = this.count + 1
+}
+
+// Only reads `this`.
+fn Graph.degree(n: NodeId): i32 {
+  return this.nodes[n].count
+}
+
+fn Graph.total(): i32 {
+  sum: i32
+  i: i32
+  sum, i = 0, 0
+  while i < this.size {
+    sum = sum + this.nodes[i].value
+    i = i + 1
+  }
+  return sum
+}
+
+fn Node.bump() {
+  this.value = this.value + 1
+}
+
+fn NodeId.next(): NodeId {
+  return this + 1
+}
+
+fn Grid.sum(): i32 {
+  return this[0][0] + this[0][1] + this[1][0] + this[1][1]
+}
+
+fn empty(): Graph {
+  return Graph(nodes: [Node(value: 0, edges: [0, 0], count: 0); 4], size: 0)
+}
+
+fn main(): i32 {
+  g: Graph
+  g = empty()
+
+  a: NodeId
+  b: NodeId
+  c: NodeId
+  a = g.add_node(10)
+  b = g.add_node(20)
+  c = g.add_node(30)
+
+  if g.size != 3 {
+    return 1
+  }
+  if i32(c) != 2 {
+    return 2
+  }
+
+  g.add_edge(a, b)
+  g.add_edge(a, c)
+  if g.degree(a) != 2 {
+    return 3
+  }
+  if g.nodes[a].edges[1] != c {
+    return 4
+  }
+
+  // In place on a part of the graph.
+  g.nodes[b].bump()
+  g.nodes[b].bump()
+  if g.total() != 62 {
+    return 5
+  }
+
+  // A method on a copy doesn't change the original.
+  h: Graph
+  h = g
+  h.nodes[a].bump()
+  if g.nodes[a].value != 10 {
+    return 6
+  }
+
+  // Changes to a temporary are discarded.
+  if empty().add_node(5) != 0 {
+    return 7
+  }
+
+  // Methods on named non-struct types, and literals adapting to them.
+  if a.next() != 1 {
+    return 8
+  }
+  if a.next().next() != b + 1 {
+    return 9
+  }
+
+  grid: Grid
+  grid = [[1, 2], [3, 4]]
+  grid[1][1] = 10
+  if grid.sum() != 16 {
+    return 10
+  }
+
+  return 0
+}

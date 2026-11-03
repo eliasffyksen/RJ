@@ -1,20 +1,20 @@
-struct Point {
+type Point struct {
   x: i32,
   y: i32,
 }
 
-struct Node {
+type Node struct {
   value: i32,
   edges: [i32; 2],
   visited: bool,
 }
 
-struct Graph {
+type Graph struct {
   nodes: [Node; 3],
   origin: Point,
 }
 
-struct Empty {}
+type Empty struct {}
 
 fn point(x: i32, y: i32): Point {
   // Fields may be given in any order.

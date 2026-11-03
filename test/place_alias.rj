@@ -1,12 +1,12 @@
 // Calls on parts of variables, where updating in place could go wrong if
 // storage were shared carelessly.
 
-struct Node {
+type Node struct {
   value: i32,
   edges: [i32; 2],
 }
 
-struct Graph {
+type Graph struct {
   nodes: [Node; 3],
 }
 

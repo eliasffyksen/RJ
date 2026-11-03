@@ -22,30 +22,44 @@ pub fn parse(source: &str) -> Result<Module> {
         .next()
         .unwrap();
 
-    let mut structs = vec![];
+    let mut types = vec![];
     let mut functions = vec![];
 
     for pair in module.into_inner() {
         match pair.as_rule() {
-            Rule::struct_def => structs.push(struct_def(pair)?),
+            Rule::type_def => types.push(type_def(pair)?),
             Rule::func => functions.push(function(pair)?),
             Rule::EOI => {}
             rule => unreachable!("unexpected {rule:?} in module"),
         }
     }
 
-    Ok(Module { structs, functions })
+    Ok(Module { types, functions })
 }
 
-fn struct_def(pair: Pair<Rule>) -> Result<StructDef> {
+fn type_def(pair: Pair<Rule>) -> Result<TypeDef> {
     let span = span(&pair);
     let mut inner = pair.into_inner();
+    let name = ident(inner.next().unwrap());
+    let body = inner.next().unwrap();
 
-    Ok(StructDef {
-        name: ident(inner.next().unwrap()),
-        fields: inner.map(var_decl).collect::<Result<_>>()?,
-        span,
-    })
+    let body = match body.as_rule() {
+        Rule::struct_type => {
+            TypeDefBody::Struct(body.into_inner().map(var_decl).collect::<Result<_>>()?)
+        }
+        Rule::var_type => TypeDefBody::Type(ty(body)?),
+        rule => unreachable!("unexpected {rule:?} in type definition"),
+    };
+
+    Ok(TypeDef { name, body, span })
+}
+
+/// `this`, as an identifier.
+fn this(pair: Pair<Rule>) -> Ident {
+    Ident {
+        name: "this".to_string(),
+        span: span(&pair),
+    }
 }
 
 fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
@@ -75,7 +89,12 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::field_suffix => "`.`",
             Rule::struct_lit => "struct",
             Rule::field_init => "field",
-            Rule::struct_def => "struct definition",
+            Rule::type_def => "type definition",
+            Rule::struct_type => "struct type",
+            Rule::method_suffix => "method call",
+            Rule::expr_stmt => "statement",
+            Rule::this_ref => "`this`",
+            Rule::receiver => "type name",
             Rule::array_list | Rule::array_repeat => "array",
             Rule::array_len => "array length",
             Rule::place => "variable",
@@ -107,7 +126,14 @@ fn span(pair: &Pair<Rule>) -> Span {
 fn function(pair: Pair<Rule>) -> Result<Function> {
     let span = span(&pair);
     let mut inner = pair.into_inner();
-    let name = ident(inner.next().unwrap());
+    let mut receiver = None;
+    let mut name = inner.next().unwrap();
+
+    if name.as_rule() == Rule::receiver {
+        receiver = Some(ident(name.into_inner().next().unwrap()));
+        name = inner.next().unwrap();
+    }
+    let name = ident(name);
 
     let mut params = vec![];
     let mut returns = vec![];
@@ -123,6 +149,7 @@ fn function(pair: Pair<Rule>) -> Result<Function> {
     }
 
     Ok(Function {
+        receiver,
         name,
         params,
         returns,
@@ -186,7 +213,11 @@ fn place(pair: Pair<Rule>) -> Result<Place> {
     let span = span(&pair);
     let mut inner = pair.into_inner();
 
-    let name = ident(inner.next().unwrap());
+    let root = inner.next().unwrap();
+    let name = match root.as_rule() {
+        Rule::this_ref => this(root),
+        _ => ident(root),
+    };
     let mut path = vec![];
 
     for elem in inner {
@@ -256,6 +287,19 @@ fn stmt(pair: Pair<Rule>) -> Result<Stmt> {
             }
         }
 
+        Rule::expr_stmt => {
+            let expr = expr(pair.into_inner().next().unwrap())?;
+
+            if !matches!(expr.kind, ExprKind::MethodCall { .. }) {
+                return Err(Error::new(
+                    "only calls can be used as statements; this value is unused",
+                    expr.span,
+                ));
+            }
+
+            StmtKind::Expr(expr)
+        }
+
         rule => unreachable!("unexpected {rule:?} in statement"),
     };
 
@@ -302,6 +346,8 @@ fn expr(mut pair: Pair<Rule>) -> Result<Expr> {
 
         Rule::ident => ExprKind::Var(ident(pair)),
 
+        Rule::this_ref => ExprKind::Var(this(pair)),
+
         Rule::func_call => ExprKind::Call(call(pair)?),
 
         Rule::array_list => ExprKind::ArrayList(pair.into_inner().map(expr).collect::<Result<_>>()?),
@@ -337,9 +383,15 @@ fn expr(mut pair: Pair<Rule>) -> Result<Expr> {
                 let suffix_span = self::span(&suffix);
                 let span = Span::new(base.span.start, suffix_span.end);
                 let rule = suffix.as_rule();
-                let inner = suffix.into_inner().next().unwrap();
+                let mut parts = suffix.into_inner();
+                let inner = parts.next().unwrap();
 
                 let kind = match rule {
+                    Rule::method_suffix => ExprKind::MethodCall {
+                        receiver: Box::new(base),
+                        method: ident(inner),
+                        args: expr_list(parts.next().unwrap())?,
+                    },
                     Rule::index_suffix => ExprKind::Index {
                         base: Box::new(base),
                         index: Box::new(expr(inner)?),
@@ -491,8 +543,8 @@ mod tests {
     #[test]
     fn parses_structs() {
         let module = parse(
-            "struct Inner { v: [i32; 2] }
-             struct Outer { a: Inner, b: bool, }
+            "type Inner struct { v: [i32; 2] }
+             type Outer struct { a: Inner, b: bool, }
              fn f(o: Outer): i32 {
                o.a.v[1] = Outer(a: Inner(v: [1, 2]), b: true).a.v[0]
                return o.a.v[1]
@@ -500,14 +552,42 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(module.structs.len(), 2);
-        assert_eq!(module.structs[1].fields.len(), 2);
+        assert_eq!(module.types.len(), 2);
+        let TypeDefBody::Struct(fields) = &module.types[1].body else {
+            panic!("expected a struct");
+        };
+        assert_eq!(fields.len(), 2);
 
         let StmtKind::Assign { targets, values } = &module.functions[0].body.stmts[0].kind else {
             panic!("expected assignment");
         };
         assert_eq!(targets[0].path.len(), 3);
         assert!(matches!(values[0].kind, ExprKind::Index { .. }));
+    }
+
+    #[test]
+    fn parses_methods_and_type_definitions() {
+        let module = parse(
+            "type Id i32
+             type P struct { x: i32 }
+             fn P.shift(d: i32) { this.x = this.x + d }
+             fn main(): i32 { p: P p = P(x: 1) p.shift(2) return p.get().x }",
+        )
+        .unwrap();
+
+        assert!(matches!(module.types[0].body, TypeDefBody::Type(_)));
+        assert_eq!(module.functions[0].receiver.as_ref().unwrap().name, "P");
+
+        let StmtKind::Expr(call) = &module.functions[1].body.stmts[2].kind else {
+            panic!("expected a method call statement");
+        };
+        assert!(matches!(call.kind, ExprKind::MethodCall { .. }));
+    }
+
+    #[test]
+    fn plain_expression_statement_is_rejected() {
+        let err = parse("fn main(): i32 { x.y return 0 }").unwrap_err();
+        assert_eq!(err.message, "only calls can be used as statements; this value is unused");
     }
 
     #[test]
