@@ -1,0 +1,156 @@
+// Calls on parts of variables, where updating in place could go wrong if
+// storage were shared carelessly.
+
+struct Node {
+  value: i32,
+  edges: [i32; 2],
+}
+
+struct Graph {
+  nodes: [Node; 3],
+}
+
+fn bump(n: Node): Node {
+  n.value = n.value + 1
+  return n
+}
+
+// `a` is in/out, `b` is read-only.
+fn absorb(a: Node, b: Node): Node {
+  a.value = a.value + b.value
+  a.edges[0] = b.edges[1]
+  return a
+}
+
+fn value(n: Node): i32 {
+  return n.value
+}
+
+fn sum(edges: [i32; 2]): i32 {
+  return edges[0] + edges[1]
+}
+
+// Read-only, but its result is built by another call before `n` is read.
+fn reset_then_read(n: Node): Node {
+  return with_value(fresh(), n.value)
+}
+
+// Read-only, but the result slot is filled with `fresh()` before `n` is read.
+fn overwrite_then_read(n: Node): Node {
+  return absorb(fresh(), n)
+}
+
+fn fresh(): Node {
+  return Node(value: 0, edges: [0, 0])
+}
+
+fn with_value(n: Node, v: i32): Node {
+  n.value = v + 100
+  return n
+}
+
+fn inc(x: i32): i32 {
+  return x + 1
+}
+
+fn main(): i32 {
+  g: Graph
+  g = Graph(nodes: [Node(value: 0, edges: [1, 2]); 3])
+  g.nodes[1].value = 10
+  g.nodes[2].value = 20
+
+  // Same place on both sides.
+  i: i32
+  i = 0
+  while i < 3 {
+    g.nodes[i] = bump(g.nodes[i])
+    i = i + 1
+  }
+  if g.nodes[0].value + g.nodes[1].value + g.nodes[2].value != 33 {
+    return 1
+  }
+
+  // Same place, index written as an expression.
+  i = 1
+  g.nodes[i + 1] = bump(g.nodes[i + 1])
+  if g.nodes[2].value != 22 {
+    return 2
+  }
+
+  // Different element of the same array.
+  g.nodes[0] = bump(g.nodes[2])
+  if g.nodes[0].value != 23 {
+    return 3
+  }
+  if g.nodes[2].value != 22 {
+    return 4
+  }
+
+  // In/out and read-only arguments from the same variable.
+  g.nodes[1] = absorb(g.nodes[1], g.nodes[1])
+  if g.nodes[1].value != 22 {
+    return 5
+  }
+  g.nodes[1].edges[1] = 7
+  g.nodes[0] = absorb(g.nodes[0], g.nodes[1])
+  if g.nodes[0].value != 45 {
+    return 6
+  }
+  if g.nodes[0].edges[0] != 7 {
+    return 7
+  }
+  if g.nodes[1].value != 22 {
+    return 8
+  }
+
+  // The index reads the variable being updated.
+  g.nodes[2].value = 1
+  g.nodes[g.nodes[2].value] = bump(g.nodes[g.nodes[2].value])
+  if g.nodes[1].value != 23 {
+    return 9
+  }
+  if g.nodes[2].value != 1 {
+    return 10
+  }
+
+  // Read-only parts.
+  if value(g.nodes[1]) != 23 {
+    return 11
+  }
+  if sum(g.nodes[0].edges) != 9 {
+    return 12
+  }
+
+  // A read-only callee that writes its result before reading its argument,
+  // with the result going into the same variable.
+  g.nodes[0] = reset_then_read(g.nodes[0])
+  if g.nodes[0].value != 145 {
+    return 13
+  }
+  g.nodes[2] = reset_then_read(g.nodes[1])
+  if g.nodes[2].value != 123 {
+    return 14
+  }
+
+  // The result goes into a place that is also a read-only argument.
+  g.nodes[0].value = 5
+  g.nodes[1].value = 1
+  g.nodes[0] = absorb(g.nodes[1], g.nodes[0])
+  if g.nodes[0].value != 6 {
+    return 16
+  }
+
+  g.nodes[0].value = 8
+  g.nodes[0] = overwrite_then_read(g.nodes[0])
+  if g.nodes[0].value != 8 {
+    return 17
+  }
+
+  // Scalar parts.
+  g.nodes[1].edges[0] = inc(g.nodes[1].edges[0])
+  if g.nodes[1].edges[0] != 3 {
+    return 15
+  }
+
+  return 0
+}

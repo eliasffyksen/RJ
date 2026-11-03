@@ -117,8 +117,14 @@ parameters are classified from its own body (`--emit-ir` shows the result):
 - **consume**: written but not returned. The caller hands over its own array
   when liveness shows it no longer needs it, and passes a copy otherwise.
 
+This also works on parts of variables: `g.nodes[i] = bump(g.nodes[i])`
+passes a pointer straight into `g`, and `sum(g.nodes[i].edges)` with a
+read-only parameter reads the edges where they are.
+
 A copy is only made when the caller still needs the old value or the same
-storage would otherwise be visible twice in one call. `test/array_alias.rj`
+storage would otherwise be visible twice in one call. For parts, "the same
+storage" is judged per variable: two different elements of `g` used in one
+call are treated as overlapping. `test/array_alias.rj`
 covers those cases, and codegen tests count the copies emitted for the common
 patterns.
 

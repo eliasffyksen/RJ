@@ -172,6 +172,15 @@ impl Builder<'_> {
                 self.expr_into(expr, target.local)
             }
 
+            // `g.nodes[i] = f(g.nodes[i])`: the call writes straight into the
+            // place, and an argument naming the same place shares its
+            // lowered path, so codegen can see it's the same place.
+            ([target], [hir::Value::Single(hir::Expr { kind: hir::ExprKind::Call(call), .. })], _) => {
+                let path = self.path(&target.path, false);
+                let dest = Place { local: target.local, path };
+                self.call_to(call, vec![dest.clone()], Some((target, &dest)));
+            }
+
             ([target], [hir::Value::Single(expr)], _) => {
                 let value = self.operand(expr);
                 let path = self.path(&target.path, false);
@@ -349,7 +358,14 @@ impl Builder<'_> {
     }
 
     fn call(&mut self, call: &hir::Call, dests: Vec<LocalId>) {
-        let args = self.args(&call.args);
+        let dests = dests.into_iter().map(Place::whole).collect();
+        self.call_to(call, dests, None);
+    }
+
+    /// `shared` is a destination place with its source form; an argument
+    /// naming the same place is passed as that exact place.
+    fn call_to(&mut self, call: &hir::Call, dests: Vec<Place>, shared: Option<(&hir::Place, &Place)>) {
+        let args = self.args(&call.args, shared);
 
         self.push(Stmt::Call {
             func: call.func,
@@ -358,12 +374,25 @@ impl Builder<'_> {
         });
     }
 
-    fn args(&mut self, values: &[hir::Value]) -> Vec<Operand> {
+    fn args(&mut self, values: &[hir::Value], shared: Option<(&hir::Place, &Place)>) -> Vec<CallArg> {
         let mut operands = vec![];
 
         for value in values {
             match value {
-                hir::Value::Single(expr) => operands.push(self.operand(expr)),
+                hir::Value::Single(expr) if expr.ty.is_aggregate() => {
+                    if let Some((source, place)) = shared {
+                        if expr_is_place(expr, source) {
+                            operands.push(CallArg::Place(place.clone()));
+                            continue;
+                        }
+                    }
+
+                    match self.place_read(expr) {
+                        Some(place) => operands.push(CallArg::Place(place)),
+                        None => operands.push(CallArg::Value(self.operand(expr))),
+                    }
+                }
+                hir::Value::Single(expr) => operands.push(CallArg::Value(self.operand(expr))),
                 hir::Value::Multi(call) => {
                     let temps = self
                         .returns_of(call)
@@ -371,12 +400,40 @@ impl Builder<'_> {
                         .map(|ty| self.new_temp(ty))
                         .collect::<Vec<_>>();
                     self.call(call, temps.clone());
-                    operands.extend(temps.into_iter().map(Operand::Local));
+                    operands.extend(temps.into_iter().map(|t| CallArg::Value(Operand::Local(t))));
                 }
             }
         }
 
         operands
+    }
+
+    /// `local.path` for an expression like `g.nodes[i]` that reads a part of
+    /// a local, with its indexes evaluated.
+    fn place_read(&mut self, expr: &hir::Expr) -> Option<Place> {
+        let (base, steps) = chain(expr);
+
+        let hir::ExprKind::Local(local) = base.kind else {
+            return None;
+        };
+        if steps.is_empty() {
+            return None;
+        }
+
+        let path = self.steps(&steps);
+        Some(Place { local, path })
+    }
+
+    /// Lowers the steps of an index/field chain, innermost first.
+    fn steps(&mut self, steps: &[&hir::Expr]) -> Vec<Elem> {
+        steps
+            .iter()
+            .map(|step| match &step.kind {
+                hir::ExprKind::Index { index, .. } => Elem::Index(self.operand(index)),
+                hir::ExprKind::Field { field, .. } => Elem::Field(*field),
+                _ => unreachable!(),
+            })
+            .collect()
     }
 
     fn values_into_temps(&mut self, values: &[hir::Value]) -> Vec<LocalId> {
@@ -468,31 +525,14 @@ impl Builder<'_> {
 
             // `a.items[i].x`: one read along a path from the innermost base.
             hir::ExprKind::Index { .. } | hir::ExprKind::Field { .. } => {
-                // Walk down to the base, collecting the steps outermost first.
-                let mut steps = vec![];
-                let mut base = expr;
-                while let hir::ExprKind::Index { base: inner, .. }
-                | hir::ExprKind::Field { base: inner, .. } = &base.kind
-                {
-                    steps.push(base);
-                    base = inner;
-                }
+                let (base, steps) = chain(expr);
 
                 // Arrays and structs have no constant operands, so the base
                 // is always a local.
                 let Operand::Local(local) = self.operand(base) else {
                     unreachable!("aggregate operand is not a local");
                 };
-
-                let path = steps
-                    .into_iter()
-                    .rev()
-                    .map(|step| match &step.kind {
-                        hir::ExprKind::Index { index, .. } => Elem::Index(self.operand(index)),
-                        hir::ExprKind::Field { field, .. } => Elem::Field(*field),
-                        _ => unreachable!(),
-                    })
-                    .collect();
+                let path = self.steps(&steps);
 
                 self.push(Stmt::Assign {
                     dest,
@@ -534,5 +574,63 @@ fn expr_reads_any(expr: &hir::Expr, locals: &[LocalId]) -> bool {
         }
         hir::ExprKind::Field { base, .. } => expr_reads_any(base, locals),
         hir::ExprKind::StructLit(_, fields) => fields.iter().any(|f| expr_reads_any(f, locals)),
+    }
+}
+
+/// Splits `a.b[i].c` into its base `a` and its steps, innermost first.
+fn chain(expr: &hir::Expr) -> (&hir::Expr, Vec<&hir::Expr>) {
+    let mut steps = vec![];
+    let mut base = expr;
+
+    while let hir::ExprKind::Index { base: inner, .. } | hir::ExprKind::Field { base: inner, .. } =
+        &base.kind
+    {
+        steps.push(base);
+        base = inner;
+    }
+
+    steps.reverse();
+    (base, steps)
+}
+
+/// Whether `expr` reads exactly the place `place`, with equal indexes.
+/// Expressions are pure, so equal index expressions have equal values.
+fn expr_is_place(expr: &hir::Expr, place: &hir::Place) -> bool {
+    let (base, steps) = chain(expr);
+
+    matches!(base.kind, hir::ExprKind::Local(id) if id == place.local)
+        && steps.len() == place.path.len()
+        && steps.iter().zip(&place.path).all(|(step, elem)| match (&step.kind, elem) {
+            (hir::ExprKind::Index { index, .. }, hir::PlaceElem::Index(other)) => {
+                expr_eq(index, other)
+            }
+            (hir::ExprKind::Field { field, .. }, hir::PlaceElem::Field(other)) => field == other,
+            _ => false,
+        })
+}
+
+/// Structural equality of simple expressions, ignoring spans.
+fn expr_eq(a: &hir::Expr, b: &hir::Expr) -> bool {
+    use hir::ExprKind::*;
+
+    match (&a.kind, &b.kind) {
+        (Int(x), Int(y)) => x == y,
+        (Bool(x), Bool(y)) => x == y,
+        (Local(x), Local(y)) => x == y,
+        (
+            Binary { op, lhs, rhs },
+            Binary {
+                op: op2,
+                lhs: lhs2,
+                rhs: rhs2,
+            },
+        ) => op == op2 && expr_eq(lhs, lhs2) && expr_eq(rhs, rhs2),
+        (Index { base, index }, Index { base: base2, index: index2 }) => {
+            expr_eq(base, base2) && expr_eq(index, index2)
+        }
+        (Field { base, field }, Field { base: base2, field: field2 }) => {
+            field == field2 && expr_eq(base, base2)
+        }
+        _ => false,
     }
 }

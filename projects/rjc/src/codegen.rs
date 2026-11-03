@@ -368,85 +368,137 @@ impl<'a> FunctionEmitter<'a> {
         }
     }
 
-    fn call(&mut self, func: FuncId, args: &[Operand], dests: &[LocalId], live_after: &HashSet<LocalId>) {
+    /// The type of the part of `local` that `path` leads to.
+    fn path_type(&self, local: LocalId, path: &[Elem]) -> Type {
+        let mut ty = self.ty(local);
+
+        for elem in path {
+            ty = match (elem, ty) {
+                (Elem::Index(_), Type::Array(elem, _)) => *elem,
+                (Elem::Field(field), Type::Struct(id, _)) => {
+                    self.program.structs[id.0].fields[*field].ty.clone()
+                }
+                (_, ty) => unreachable!("path does not match type {ty}"),
+            };
+        }
+
+        ty
+    }
+
+    /// Emits a call. Array and struct arguments are passed according to the
+    /// callee's parameter modes; see the module documentation. Two places
+    /// overlap if they belong to the same variable ("root"), compared by
+    /// storage so an in/out parameter and its return slot count as one.
+    fn call(&mut self, func: FuncId, args: &[CallArg], dests: &[Place], live_after: &HashSet<LocalId>) {
         let all_modes = self.modes;
         let modes = &all_modes[func.0];
-        let arg_locals = args
+
+        let arg_places = args
             .iter()
-            .filter_map(|arg| match arg {
-                Operand::Local(id) => Some(*id),
-                _ => None,
+            .map(|arg| match arg {
+                CallArg::Place(place) => Some(place.clone()),
+                CallArg::Value(Operand::Local(x)) if self.ty(*x).is_aggregate() => {
+                    Some(Place::whole(*x))
+                }
+                CallArg::Value(_) => None,
             })
             .collect::<Vec<_>>();
-        let passed_once = |x: LocalId| arg_locals.iter().filter(|a| **a == x).count() == 1;
+        let read_roots = arg_places
+            .iter()
+            .flatten()
+            .map(|place| self.slot(place.local))
+            .collect::<Vec<_>>();
+        let dest_roots = dests.iter().map(|dest| self.slot(dest.local)).collect::<Vec<_>>();
+        let count = |roots: &[String], root: &str| roots.iter().filter(|r| *r == root).count();
 
-        // Return pointers. For an in/out parameter, the return slot's buffer
-        // must hold the argument when the call starts.
-        let mut ret_ptrs = dests.iter().map(|dest| self.slot(*dest)).collect::<Vec<_>>();
+        // Destination pointers; their indexes are checked before the call.
+        let mut ret_ptrs = vec![];
+        for dest in dests {
+            ret_ptrs.push(self.place_ptr(dest.local, &dest.path).0);
+        }
         let mut copy_back = vec![];
 
-        for (arg, mode) in args.iter().zip(modes) {
+        // For an in/out parameter, the return slot's buffer must hold the
+        // argument when the call starts.
+        for (k, mode) in modes.iter().enumerate() {
             let ParamMode::InOut(ret) = *mode else {
                 continue;
             };
-            let Operand::Local(x) = *arg else {
-                unreachable!("array argument is not a local");
-            };
-            let dest = dests[ret];
-            let ty = self.ty(x);
+            let arg = arg_places[k].clone().expect("in/out argument is not a place");
+            let dest = &dests[ret];
+            let root = self.slot(arg.local);
+            let ty = self.path_type(arg.local, &arg.path);
 
-            // `x` is overwritten by the result, so it doesn't matter that its
-            // old value is lost, even if `x` is our own in/out parameter.
-            let in_place =
-                dest == x && passed_once(x) && self.param_mode(x) != Some(ParamMode::Read);
+            // `x = f(x)` or `g.nodes[i] = f(g.nodes[i])`: the place is
+            // overwritten by the result, so it's updated where it is, as long
+            // as nothing else in the call refers to the same variable.
+            let in_place = arg == *dest
+                && count(&read_roots, &root) == 1
+                && count(&dest_roots, &root) == 1
+                && self.param_mode(arg.local) != Some(ParamMode::Read);
 
             if in_place {
-                // `x = f(x)`: `x` is updated where it is.
-            } else if !arg_locals.contains(&dest) {
-                // Nothing else in the call reads `dest`, so fill it first.
-                let (to, from) = (self.slot(dest), self.slot(x));
+                continue;
+            }
+
+            let (from, _) = self.place_ptr(arg.local, &arg.path);
+
+            if count(&read_roots, &dest_roots[ret]) == 0 {
+                // Nothing else in the call reads the destination's variable,
+                // so fill the destination first.
+                let to = ret_ptrs[ret].clone();
                 self.memcpy(&to, &from, &ty);
             } else {
                 let temp = self.temp_array(&ty);
-                let from = self.slot(x);
                 self.memcpy(&temp, &from, &ty);
-                ret_ptrs[ret] = temp.clone();
-                copy_back.push((temp, dest));
+                let original = std::mem::replace(&mut ret_ptrs[ret], temp.clone());
+                copy_back.push((temp, original, ty));
             }
         }
 
-        // Storage the callee writes during the call.
-        let written = ret_ptrs.iter().cloned().collect::<HashSet<_>>();
+        // Variables the callee writes during the call.
+        let written = dest_roots
+            .iter()
+            .zip(&ret_ptrs)
+            .filter(|(_, ptr)| !copy_back.iter().any(|(temp, _, _)| temp == *ptr))
+            .map(|(root, _)| root.clone())
+            .collect::<HashSet<_>>();
+
         let mut call_args = ret_ptrs.iter().map(|ptr| format!("ptr {ptr}")).collect::<Vec<_>>();
 
-        for (arg, mode) in args.iter().zip(modes) {
-            let lend = match (mode, arg) {
-                (ParamMode::Value, _) => {
-                    let ty = llvm_type(&self.operand_type(*arg));
-                    let value = self.operand(*arg);
+        for (k, (arg, mode)) in args.iter().zip(modes).enumerate() {
+            let place = match (mode, arg) {
+                (ParamMode::Value, CallArg::Value(operand)) => {
+                    let ty = llvm_type(&self.operand_type(*operand));
+                    let value = self.operand(*operand);
                     call_args.push(format!("{ty} {value}"));
                     continue;
                 }
                 (ParamMode::InOut(_), _) => continue,
-                (ParamMode::Read, Operand::Local(x)) => !written.contains(&self.slot(*x)),
-                (ParamMode::Consume, Operand::Local(x)) => {
-                    self.owns(*x)
-                        && passed_once(*x)
-                        && !live_after.contains(x)
-                        && !dests.contains(x)
+                (ParamMode::Read | ParamMode::Consume, _) => arg_places[k].clone().unwrap(),
+                (ParamMode::Value, CallArg::Place(_)) => unreachable!("scalar passed as a place"),
+            };
+            let root = self.slot(place.local);
+
+            let lend = match mode {
+                ParamMode::Read => !written.contains(&root),
+                // Only a whole variable can be handed over.
+                _ => {
+                    place.path.is_empty()
+                        && self.owns(place.local)
+                        && count(&read_roots, &root) == 1
+                        && !live_after.contains(&place.local)
+                        && count(&dest_roots, &root) == 0
                 }
-                _ => unreachable!("array argument is not a local"),
             };
 
-            let Operand::Local(x) = *arg else { unreachable!() };
+            let (ptr, ty) = self.place_ptr(place.local, &place.path);
 
             if lend {
-                call_args.push(format!("ptr {}", self.slot(x)));
+                call_args.push(format!("ptr {ptr}"));
             } else {
-                let ty = self.ty(x);
                 let temp = self.temp_array(&ty);
-                let from = self.slot(x);
-                self.memcpy(&temp, &from, &ty);
+                self.memcpy(&temp, &ptr, &ty);
                 call_args.push(format!("ptr {temp}"));
             }
         }
@@ -454,9 +506,7 @@ impl<'a> FunctionEmitter<'a> {
         let name = symbol(&self.program.function(func).name);
         self.line(format!("call void @{name}({})", call_args.join(", ")));
 
-        for (temp, dest) in copy_back {
-            let ty = self.ty(dest);
-            let to = self.slot(dest);
+        for (temp, to, ty) in copy_back {
             self.memcpy(&to, &temp, &ty);
         }
     }
@@ -731,6 +781,67 @@ mod tests {
         // copied into its parent (building literals in place would remove
         // them).
         assert_eq!(copies(source, &["bump", "main"]), [0, 3]);
+    }
+
+    const GRAPH: &str = "
+        struct Node { value: i32, edges: [i32; 100] }
+        struct Graph { nodes: [Node; 100] }
+        fn bump(n: Node): Node { n.value = n.value + 1 return n }
+        fn total(edges: [i32; 100]): i32 { return edges[0] + edges[99] }";
+
+    #[test]
+    fn updating_a_part_in_place_copies_nothing() {
+        let source = format!(
+            "{GRAPH}
+             fn bump_all(g: Graph): Graph {{
+               i: i32
+               i = 0
+               while i < 100 {{
+                 g.nodes[i] = bump(g.nodes[i])
+                 i = i + 1
+               }}
+               return g
+             }}
+             fn main(): i32 {{ return 0 }}"
+        );
+
+        assert_eq!(copies(&source, &["bump", "bump_all"]), [0, 0]);
+    }
+
+    #[test]
+    fn read_only_part_is_lent() {
+        let source = format!(
+            "{GRAPH}
+             fn sum(g: Graph): i32 {{
+               s: i32
+               i: i32
+               s, i = 0, 0
+               while i < 100 {{
+                 s = s + total(g.nodes[i].edges)
+                 i = i + 1
+               }}
+               return s
+             }}
+             fn main(): i32 {{ return 0 }}"
+        );
+
+        assert_eq!(copies(&source, &["sum"]), [0]);
+    }
+
+    #[test]
+    fn result_into_another_part_copies_once() {
+        let source = format!(
+            "{GRAPH}
+             fn shift(g: Graph): Graph {{
+               g.nodes[0] = bump(g.nodes[1])
+               return g
+             }}
+             fn main(): i32 {{ return 0 }}"
+        );
+
+        // `g.nodes[1]` must survive, and the call reads `g` while writing
+        // into it, so the argument goes through a temporary and back.
+        assert_eq!(copies(&source, &["shift"]), [2]);
     }
 
     #[test]

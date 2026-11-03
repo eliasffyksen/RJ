@@ -58,8 +58,28 @@ fn uses_and_defs(stmt: &Stmt) -> (Vec<LocalId>, Vec<LocalId>) {
         }
 
         Stmt::Call { args, dests, .. } => {
-            args.iter().for_each(|arg| operand_uses(arg, &mut uses));
-            (uses, dests.clone())
+            for arg in args {
+                match arg {
+                    CallArg::Value(operand) => operand_uses(operand, &mut uses),
+                    CallArg::Place(place) => {
+                        uses.push(place.local);
+                        path_uses(&place.path, &mut uses);
+                    }
+                }
+            }
+
+            let mut defs = vec![];
+            for dest in dests {
+                if dest.path.is_empty() {
+                    defs.push(dest.local);
+                } else {
+                    // Writing a part keeps the rest of the old value.
+                    uses.push(dest.local);
+                    path_uses(&dest.path, &mut uses);
+                }
+            }
+
+            (uses, defs)
         }
     }
 }

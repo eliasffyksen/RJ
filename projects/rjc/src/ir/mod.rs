@@ -9,6 +9,9 @@
 //!   liveness of every value explicit, which is what the parameter-mode
 //!   analysis needs: `x = f(x)` appears as `call f(x) -> [x]`.
 //! - A call reads all of its arguments before writing any of its `dests`.
+//!   Array and struct arguments and destinations can be parts of locals
+//!   (`g.nodes[i]`), so `g.nodes[i] = f(g.nodes[i])` names the same place
+//!   on both sides and can be done in place.
 //! - Returning means assigning the return slots and then `return`.
 
 // Some accessors are only used by tests until the analysis and backend exist.
@@ -90,8 +93,8 @@ pub enum Stmt {
     },
     Call {
         func: FuncId,
-        args: Vec<Operand>,
-        dests: Vec<LocalId>,
+        args: Vec<CallArg>,
+        dests: Vec<Place>,
     },
     /// `local.path = value`: updates one part, keeping the rest. The path
     /// is never empty.
@@ -100,6 +103,27 @@ pub enum Stmt {
         path: Vec<Elem>,
         value: Operand,
     },
+}
+
+/// A local, or a part of one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    pub local: LocalId,
+    pub path: Vec<Elem>,
+}
+
+impl Place {
+    pub fn whole(local: LocalId) -> Place {
+        Place { local, path: vec![] }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallArg {
+    Value(Operand),
+    /// A part of an array or struct local, passed without copying it out
+    /// first. Its indexes are read before the call.
+    Place(Place),
 }
 
 /// One step of a path into an array or struct.
@@ -228,8 +252,19 @@ impl Function {
                         writeln!(f, "    {} = {value}", self.place_str(program, *local, path))?
                     }
                     Stmt::Call { func, args, dests } => {
-                        let args = args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
-                        let dests = dests.iter().map(|d| d.to_string()).collect::<Vec<_>>();
+                        let args = args
+                            .iter()
+                            .map(|arg| match arg {
+                                CallArg::Value(operand) => operand.to_string(),
+                                CallArg::Place(place) => {
+                                    self.place_str(program, place.local, &place.path)
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        let dests = dests
+                            .iter()
+                            .map(|dest| self.place_str(program, dest.local, &dest.path))
+                            .collect::<Vec<_>>();
                         writeln!(
                             f,
                             "    call {}({}) -> [{}]",

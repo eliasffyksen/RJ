@@ -118,12 +118,33 @@ pub fn call(program: &Program, func: FuncId, args: Vec<Value>) -> Vec<Value> {
                 }
 
                 Stmt::Call { func, args, dests } => {
-                    let args = args.iter().map(|arg| read(&locals, arg)).collect();
+                    let args = args
+                        .iter()
+                        .map(|arg| match arg {
+                            CallArg::Value(operand) => read(&locals, operand),
+                            CallArg::Place(place) => {
+                                let steps = eval_path(&locals, &place.path);
+                                let mut value = read(&locals, &Operand::Local(place.local));
+                                part(&mut value, &steps).clone()
+                            }
+                        })
+                        .collect();
+
+                    // Destination indexes are evaluated before the call.
+                    let dest_steps = dests
+                        .iter()
+                        .map(|dest| eval_path(&locals, &dest.path))
+                        .collect::<Vec<_>>();
+
                     let results = call(program, *func, args);
 
                     assert_eq!(results.len(), dests.len());
-                    for (dest, result) in dests.iter().zip(results) {
-                        locals[dest.0] = Some(result);
+                    for ((dest, steps), result) in dests.iter().zip(dest_steps).zip(results) {
+                        match &mut locals[dest.local.0] {
+                            Some(target) => *part(target, &steps) = result,
+                            target @ None if steps.is_empty() => *target = Some(result),
+                            None => panic!("partial write to unassigned local {}", dest.local),
+                        }
                     }
                 }
             }
@@ -258,7 +279,10 @@ mod tests {
 
         assert_eq!(
             calls,
-            [(vec![Operand::Local(LocalId(x))], vec![LocalId(x)])]
+            [(
+                vec![CallArg::Value(Operand::Local(LocalId(x)))],
+                vec![Place::whole(LocalId(x))]
+            )]
         );
         assert_eq!(run(&program), 0);
     }

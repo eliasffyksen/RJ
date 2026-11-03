@@ -74,8 +74,8 @@ pub fn param_modes(function: &Function) -> Vec<ParamMode> {
                 Stmt::SetPlace { local, .. } => written[local.0] = true,
                 Stmt::Call { dests, .. } => {
                     for dest in dests {
-                        written[dest.0] = true;
-                        record_slot_write(*dest, None);
+                        written[dest.local.0] = true;
+                        record_slot_write(dest.local, None);
                     }
                 }
             }
