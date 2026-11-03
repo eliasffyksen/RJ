@@ -181,6 +181,11 @@ test.rj:20:3: note[N0001]: copies `g.nodes[4]` for `clobber`, which changes
 its parameter: only a whole variable can be handed over
 ```
 
+### Formatting
+
+`rjc --fmt FILE` prints the file in RJ's canonical format (`--write` rewrites
+it in place), keeping comments and the blank lines between statements.
+
 ### Examples
 
 `example` declarations are checked every time a program is compiled, by

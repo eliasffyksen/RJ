@@ -11,6 +11,10 @@ pub struct Config {
     pub json: bool,
     /// Report the array and struct copies the compiler couldn't remove.
     pub copies: bool,
+    /// Print the file in the canonical format.
+    pub fmt: bool,
+    /// With `fmt`: rewrite the file instead of printing it.
+    pub write: bool,
     /// Print the explanation of an error code and exit.
     pub explain: String,
     pub file_name: String,
@@ -63,6 +67,18 @@ impl Config {
                 &["--copies"],
                 argparse::StoreTrue,
                 "Report array and struct copies the compiler couldn't remove",
+            );
+
+            ap.refer(&mut config.fmt).add_option(
+                &["--fmt"],
+                argparse::StoreTrue,
+                "Print the file in the canonical format",
+            );
+
+            ap.refer(&mut config.write).add_option(
+                &["--write"],
+                argparse::StoreTrue,
+                "With --fmt, rewrite the file in place",
             );
 
             ap.refer(&mut config.explain).add_option(

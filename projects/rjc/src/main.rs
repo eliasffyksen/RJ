@@ -54,6 +54,21 @@ fn main() -> ExitCode {
         }
     };
 
+    if config.fmt {
+        let formatted = syntax::format::format(&source, &module);
+
+        if !config.write {
+            print!("{formatted}");
+        } else if formatted != source {
+            if let Err(err) = fs::write(&config.file_name, formatted) {
+                eprintln!("{}: error: {err}", config.file_name);
+                return ExitCode::FAILURE;
+            }
+        }
+
+        return ExitCode::SUCCESS;
+    }
+
     if config.emit_ast {
         println!("{module:#?}");
     }

@@ -1,4 +1,3 @@
-
 fn main(): i32 {
   ret_val: i32
   ret_val = 1

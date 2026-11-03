@@ -107,3 +107,17 @@ fn copy_notes_in_json() {
     assert!(stdout.contains("copies `a` into `b`"), "{stdout}");
     assert!(stdout.contains(r#""line":6"#), "{stdout}");
 }
+
+#[test]
+fn fmt_prints_and_writes_the_canonical_form() {
+    let path = source_file("fmt.rj", "fn main():i32{return 1+1}\n");
+    let canonical = "fn main(): i32 {\n  return 1 + 1\n}\n";
+
+    let (ok, stdout, _) = rjc(&["--fmt", path.to_str().unwrap()]);
+    assert!(ok);
+    assert_eq!(stdout, canonical);
+
+    let (ok, _, _) = rjc(&["--fmt", "--write", path.to_str().unwrap()]);
+    assert!(ok);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), canonical);
+}

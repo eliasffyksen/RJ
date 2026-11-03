@@ -40,6 +40,10 @@ branch's test suite (`cargo test`, `make test`):
   copies.
 - An IR interpreter used by the tests as a reference for codegen.
 
+- Phase 1's feedback loop: error codes with `--explain`, `--json`
+  diagnostics with help and expected/found types, `example`s run at compile
+  time, `--copies` notes and `--fmt`.
+
 Not yet: totality (`while` and recursion are unrestricted), sum types,
 growable collections, strings, I/O, specs.
 
@@ -47,7 +51,7 @@ growable collections, strings, I/O, specs.
 
 Each phase is usable on its own. "Done when" is the bar for moving on.
 
-### Phase 1: Feedback loop
+### Phase 1: Feedback loop (done)
 
 Make the compiler a good partner before adding proof machinery.
 

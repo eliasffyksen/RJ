@@ -1,5 +1,3 @@
-
-
 fn main(): i32 {
   condition: bool
   condition = 123 == 321
