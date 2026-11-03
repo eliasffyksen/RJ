@@ -1,0 +1,190 @@
+// Calls where in-place updates could go wrong if storage were shared
+// carelessly. Every result is checked against plain value semantics.
+
+fn set(a: [i32; 3], i: i32, v: i32): [i32; 3] {
+  a[i] = v
+  return a
+}
+
+fn swap(a: [i32; 3], b: [i32; 3]): [i32; 3], [i32; 3] {
+  return b, a
+}
+
+fn clobber(a: [i32; 3]): i32 {
+  a[0] = 100
+  return a[0]
+}
+
+fn first(a: [i32; 3]): i32 {
+  return a[0]
+}
+
+// `a` is in/out, `b` is read-only.
+fn add_into(a: [i32; 3], b: [i32; 3]): [i32; 3] {
+  i: i32
+  i = 0
+  while i < 3 {
+    a[i] = a[i] + b[i]
+    i = i + 1
+  }
+  return a
+}
+
+// Reads `a` after handing a copy of it to a function that changes its own.
+fn read_then_clobber(a: [i32; 3]): i32 {
+  return clobber(a) + a[0]
+}
+
+// `a` is in/out (returned first), and its storage is the caller's. After
+// that, `a` is only passed to a function that overwrites its argument, which
+// must get a copy.
+fn keep_and_clobber(a: [i32; 3]): [i32; 3], i32 {
+  return a, clobber(a)
+}
+
+// `a` is in/out, `b` is read-only, and later reads of `b` see earlier
+// writes to `a` if both share storage.
+fn rotate_into(a: [i32; 3], b: [i32; 3]): [i32; 3] {
+  a[0] = b[1]
+  a[1] = b[2]
+  a[2] = b[0]
+  return a
+}
+
+// `a` is read-only, but the first return slot is written before `a` is read.
+fn zeros_and_first(a: [i32; 3]): [i32; 3], i32 {
+  return [0; 3], a[0]
+}
+
+// Replaces the whole in/out parameter.
+fn reset(a: [i32; 3]): [i32; 3] {
+  a = [7; 3]
+  return a
+}
+
+// Returns a call's result directly.
+fn set_twice(a: [i32; 3]): [i32; 3] {
+  a = set(a, 0, 1)
+  return set(a, 1, 2)
+}
+
+fn main(): i32 {
+  a: [i32; 3]
+  b: [i32; 3]
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+
+  // In place, in a loop.
+  i: i32
+  i = 0
+  while i < 3 {
+    a = set(a, i, a[i] + 10)
+    i = i + 1
+  }
+  if a[0] + a[1] + a[2] != 36 {
+    return 1
+  }
+
+  // Result into a different variable while the argument is still used.
+  c: [i32; 3]
+  c = set(a, 0, 0)
+  if a[0] != 11 {
+    return 2
+  }
+  if c[0] != 0 {
+    return 3
+  }
+
+  // Both arguments are also destinations, crossed over.
+  a, b = swap(a, b)
+  if a[0] != 4 {
+    return 4
+  }
+  if b[0] != 11 {
+    return 5
+  }
+
+  // The same array as the in/out and the read-only argument.
+  a = add_into(a, a)
+  if a[0] != 8 {
+    return 6
+  }
+
+  // The destination is also read by the call.
+  b = add_into(a, b)
+  if b[0] != 19 {
+    return 7
+  }
+  if a[0] != 8 {
+    return 8
+  }
+
+  // Consumed while still needed, then while no longer needed.
+  if clobber(a) != 100 {
+    return 9
+  }
+  if a[0] != 8 {
+    return 10
+  }
+  if read_then_clobber(a) != 108 {
+    return 11
+  }
+  if a[0] != 8 {
+    return 12
+  }
+
+  x: i32
+  a, x = keep_and_clobber(a)
+  if x != 100 {
+    return 13
+  }
+  if a[0] != 8 {
+    return 14
+  }
+
+  c = reset(a)
+  if c[0] != 7 {
+    return 15
+  }
+  if a[0] != 8 {
+    return 16
+  }
+
+  a = set_twice(a)
+  if a[0] != 1 {
+    return 17
+  }
+  if a[1] != 2 {
+    return 18
+  }
+
+  a = [1, 2, 3]
+  a = rotate_into(a, a)
+  if a[0] != 2 {
+    return 21
+  }
+  if a[1] != 3 {
+    return 22
+  }
+  if a[2] != 1 {
+    return 23
+  }
+
+  a, x = zeros_and_first(a)
+  if x != 2 {
+    return 24
+  }
+  if a[0] != 0 {
+    return 25
+  }
+
+  if first(b) != 19 {
+    return 19
+  }
+
+  if clobber(b) != 100 {
+    return 20
+  }
+
+  return 0
+}

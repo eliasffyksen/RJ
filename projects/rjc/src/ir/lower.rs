@@ -187,6 +187,22 @@ impl Builder<'_> {
 
             (_, [hir::Value::Multi(call)], Some(dests)) => self.call(call, dests),
 
+            // No value reads a target, so write each one straight into place.
+            (_, _, Some(dests)) if !values.iter().any(|value| reads_any(value, &dests)) => {
+                let mut dests = dests.into_iter();
+
+                for value in values {
+                    match value {
+                        hir::Value::Single(expr) => self.expr_into(expr, dests.next().unwrap()),
+                        hir::Value::Multi(call) => {
+                            let count = self.program.function(call.func).returns.len();
+                            let call_dests = dests.by_ref().take(count).collect();
+                            self.call(call, call_dests);
+                        }
+                    }
+                }
+            }
+
             // `a, b = b, a` or `a[i], a[j] = a[j], a[i]`: every value and
             // index must be evaluated before any target is written, so go
             // through temporaries.
@@ -452,6 +468,29 @@ impl Builder<'_> {
                     value: Rvalue::Use(operand),
                 });
             }
+        }
+    }
+}
+
+fn reads_any(value: &hir::Value, locals: &[LocalId]) -> bool {
+    match value {
+        hir::Value::Single(expr) => expr_reads_any(expr, locals),
+        hir::Value::Multi(call) => call.args.iter().any(|arg| reads_any(arg, locals)),
+    }
+}
+
+fn expr_reads_any(expr: &hir::Expr, locals: &[LocalId]) -> bool {
+    match &expr.kind {
+        hir::ExprKind::Int(_) | hir::ExprKind::Bool(_) => false,
+        hir::ExprKind::Local(id) => locals.contains(id),
+        hir::ExprKind::Call(call) => call.args.iter().any(|arg| reads_any(arg, locals)),
+        hir::ExprKind::Binary { lhs, rhs, .. } => {
+            expr_reads_any(lhs, locals) || expr_reads_any(rhs, locals)
+        }
+        hir::ExprKind::ArrayList(elems) => elems.iter().any(|e| expr_reads_any(e, locals)),
+        hir::ExprKind::ArrayRepeat(value, _) => expr_reads_any(value, locals),
+        hir::ExprKind::Index { base, index } => {
+            expr_reads_any(base, locals) || expr_reads_any(index, locals)
         }
     }
 }

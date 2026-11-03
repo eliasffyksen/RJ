@@ -2,11 +2,17 @@
 //!
 //! Calling convention (matching `stdlib/start.ll`): every function returns
 //! `void` and takes one pointer per return value first, then its arguments.
-//! Scalar arguments are passed by value. Array arguments are passed as a
-//! pointer to a copy the caller makes for the call, which the callee then
-//! owns and uses as that parameter's storage. A call passes the destination
-//! locals' storage as the return pointers, so `x = f(x)` hands `f` a pointer
-//! to `x` itself.
+//! A call passes the destination locals' storage as the return pointers.
+//! Scalar arguments are passed by value. Array arguments depend on the
+//! parameter's mode (see [`crate::ir::modes`]):
+//!
+//! - read: a pointer to an array the callee must not change. The caller lends
+//!   its own array unless the call also writes that storage.
+//! - consume: a pointer to a buffer the callee owns. The caller hands over its
+//!   own array if it doesn't need the value afterwards, otherwise a copy.
+//! - in/out: no separate argument. The parameter lives in its return slot's
+//!   buffer, which the caller fills with the argument. For `x = f(x)` that is
+//!   just `x`'s storage, so nothing is copied.
 //!
 //! Every other local gets a stack slot (`alloca`) in the entry block. LLVM's
 //! `mem2reg` turns scalar slots into registers when optimising.
@@ -17,9 +23,13 @@
 //! Functions are emitted as `rj_<name>` so they can't collide with symbols
 //! from other objects (libc's `exit`, for example).
 
-use std::fmt::Write as _;
+use std::{collections::HashSet, fmt::Write as _};
 
-use crate::ir::*;
+use crate::ir::{
+    liveness::{liveness, Liveness},
+    modes::{param_modes, ParamMode},
+    *,
+};
 
 pub fn emit(program: &Program, source_name: &str) -> String {
     let mut out = String::new();
@@ -29,9 +39,11 @@ pub fn emit(program: &Program, source_name: &str) -> String {
     writeln!(out, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)").unwrap();
     writeln!(out, "declare void @llvm.trap()").unwrap();
 
-    for function in &program.functions {
+    let modes = program.functions.iter().map(param_modes).collect::<Vec<_>>();
+
+    for (i, function) in program.functions.iter().enumerate() {
         writeln!(out).unwrap();
-        out.push_str(&FunctionEmitter::new(program, function).emit());
+        out.push_str(&FunctionEmitter::new(program, function, &modes, &modes[i]).emit());
     }
 
     out
@@ -62,14 +74,18 @@ fn is_array(ty: Type) -> bool {
     matches!(ty, Type::Array(..))
 }
 
-/// Name of the pointer to a local's storage.
-fn slot(id: LocalId) -> String {
+fn local_slot(id: LocalId) -> String {
     format!("%l{}", id.0)
 }
 
 struct FunctionEmitter<'a> {
     program: &'a Program,
     function: &'a Function,
+    /// Parameter modes of every function, by `FuncId`.
+    modes: &'a [Vec<ParamMode>],
+    /// Modes of this function's parameters.
+    own_modes: &'a [ParamMode],
+    liveness: Liveness,
     /// Allocas, placed in the entry block so loops don't grow the stack.
     entry: String,
     body: String,
@@ -81,10 +97,18 @@ struct FunctionEmitter<'a> {
 }
 
 impl<'a> FunctionEmitter<'a> {
-    fn new(program: &'a Program, function: &'a Function) -> Self {
+    fn new(
+        program: &'a Program,
+        function: &'a Function,
+        modes: &'a [Vec<ParamMode>],
+        own_modes: &'a [ParamMode],
+    ) -> Self {
         FunctionEmitter {
             program,
             function,
+            modes,
+            own_modes,
+            liveness: liveness(function),
             entry: String::new(),
             body: String::new(),
             label: String::new(),
@@ -119,20 +143,50 @@ impl<'a> FunctionEmitter<'a> {
         self.function.local(id).ty
     }
 
+    fn param_mode(&self, id: LocalId) -> Option<ParamMode> {
+        let index = self.function.params.iter().position(|p| *p == id)?;
+        Some(self.own_modes[index])
+    }
+
+    /// Name of the pointer to a local's storage. An in/out parameter lives in
+    /// its return slot's buffer.
+    fn slot(&self, id: LocalId) -> String {
+        match self.param_mode(id) {
+            Some(ParamMode::InOut(ret)) => local_slot(self.function.returns[ret]),
+            _ => local_slot(id),
+        }
+    }
+
+    /// Whether this function may let a callee overwrite `x`'s storage. Read
+    /// parameters belong to our caller, and an in/out parameter's storage is
+    /// our own return value.
+    fn owns(&self, x: LocalId) -> bool {
+        !matches!(self.param_mode(x), Some(ParamMode::Read | ParamMode::InOut(_)))
+    }
+
+    /// A stack buffer for a temporary copy, allocated in the entry block.
+    fn temp_array(&mut self, ty: Type) -> String {
+        let name = format!("%copy{}", self.fresh_label(""));
+        writeln!(self.entry, "  {name} = alloca {}", llvm_type(ty)).unwrap();
+        name
+    }
+
     fn emit(mut self) -> String {
         let function = self.function;
 
         let mut params = vec![];
         for ret in &function.returns {
-            params.push(format!("ptr {}", slot(*ret)));
+            params.push(format!("ptr {}", local_slot(*ret)));
         }
-        for param in &function.params {
-            let ty = self.ty(*param);
-
-            if is_array(ty) {
-                params.push(format!("ptr {}", slot(*param)));
-            } else {
-                params.push(format!("{} %p{}", llvm_type(ty), param.0));
+        for (param, mode) in function.params.iter().zip(self.own_modes) {
+            match mode {
+                ParamMode::Value => {
+                    params.push(format!("{} %p{}", llvm_type(self.ty(*param)), param.0))
+                }
+                ParamMode::Read | ParamMode::Consume => {
+                    params.push(format!("ptr {}", local_slot(*param)))
+                }
+                ParamMode::InOut(_) => {}
             }
         }
 
@@ -141,7 +195,8 @@ impl<'a> FunctionEmitter<'a> {
             let is_array_param = function.params.contains(&id) && is_array(local.ty);
 
             if local.kind != LocalKind::Return && !is_array_param {
-                writeln!(self.entry, "  {} = alloca {}", slot(id), llvm_type(local.ty)).unwrap();
+                writeln!(self.entry, "  {} = alloca {}", local_slot(id), llvm_type(local.ty))
+                    .unwrap();
             }
         }
 
@@ -154,7 +209,7 @@ impl<'a> FunctionEmitter<'a> {
                     "  store {} %p{}, ptr {}",
                     llvm_type(ty),
                     param.0,
-                    slot(*param)
+                    local_slot(*param)
                 )
                 .unwrap();
             }
@@ -163,8 +218,8 @@ impl<'a> FunctionEmitter<'a> {
         for (i, block) in function.blocks.iter().enumerate() {
             self.start_block(format!("bb{i}"));
 
-            for stmt in &block.stmts {
-                self.stmt(stmt);
+            for (j, stmt) in block.stmts.iter().enumerate() {
+                self.stmt(stmt, i, j);
             }
 
             self.terminator(&block.terminator);
@@ -201,7 +256,8 @@ impl<'a> FunctionEmitter<'a> {
                 debug_assert!(!is_array(ty), "array used as a scalar operand");
 
                 let register = self.register();
-                self.line(format!("{register} = load {}, ptr {}", llvm_type(ty), slot(id)));
+                let slot = self.slot(id);
+                self.line(format!("{register} = load {}, ptr {slot}", llvm_type(ty)));
                 register
             }
             Operand::Int(value) => value.to_string(),
@@ -234,15 +290,16 @@ impl<'a> FunctionEmitter<'a> {
         self.start_block(next);
 
         let ptr = self.register();
+        let slot = self.slot(array);
         self.line(format!(
-            "{ptr} = getelementptr {}, ptr {}, i64 0, i32 {index}",
-            llvm_type(ty),
-            slot(array)
+            "{ptr} = getelementptr {}, ptr {slot}, i64 0, i32 {index}",
+            llvm_type(ty)
         ));
         ptr
     }
 
-    fn stmt(&mut self, stmt: &Stmt) {
+    /// `block` and `index` locate the statement, for liveness.
+    fn stmt(&mut self, stmt: &Stmt, block: usize, index: usize) {
         match stmt {
             Stmt::Assign { dest, value } if is_array(self.ty(*dest)) => {
                 self.array_assign(*dest, value)
@@ -265,7 +322,8 @@ impl<'a> FunctionEmitter<'a> {
                 };
                 let ty = llvm_type(self.ty(*dest));
 
-                self.line(format!("store {ty} {value}, ptr {}", slot(*dest)));
+                let slot = self.slot(*dest);
+                self.line(format!("store {ty} {value}, ptr {slot}"));
             }
 
             Stmt::SetIndex {
@@ -281,30 +339,102 @@ impl<'a> FunctionEmitter<'a> {
             }
 
             Stmt::Call { func, args, dests } => {
-                let mut call_args = dests
-                    .iter()
-                    .map(|dest| format!("ptr {}", slot(*dest)))
-                    .collect::<Vec<_>>();
-
-                for arg in args {
-                    let ty = self.operand_type(*arg);
-
-                    if let (Type::Array(..), Operand::Local(src)) = (ty, arg) {
-                        // The callee owns its array arguments, so give it a
-                        // copy.
-                        let copy = format!("%copy{}", self.fresh_label(""));
-                        writeln!(self.entry, "  {copy} = alloca {}", llvm_type(ty)).unwrap();
-                        self.memcpy(&copy, &slot(*src), ty);
-                        call_args.push(format!("ptr {copy}"));
-                    } else {
-                        let value = self.operand(*arg);
-                        call_args.push(format!("{} {value}", llvm_type(ty)));
-                    }
-                }
-
-                let name = symbol(&self.program.function(*func).name);
-                self.line(format!("call void @{name}({})", call_args.join(", ")));
+                let live_after = self.liveness.live_after[block][index].clone();
+                self.call(*func, args, dests, &live_after);
             }
+        }
+    }
+
+    fn call(&mut self, func: FuncId, args: &[Operand], dests: &[LocalId], live_after: &HashSet<LocalId>) {
+        let all_modes = self.modes;
+        let modes = &all_modes[func.0];
+        let arg_locals = args
+            .iter()
+            .filter_map(|arg| match arg {
+                Operand::Local(id) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let passed_once = |x: LocalId| arg_locals.iter().filter(|a| **a == x).count() == 1;
+
+        // Return pointers. For an in/out parameter, the return slot's buffer
+        // must hold the argument when the call starts.
+        let mut ret_ptrs = dests.iter().map(|dest| self.slot(*dest)).collect::<Vec<_>>();
+        let mut copy_back = vec![];
+
+        for (arg, mode) in args.iter().zip(modes) {
+            let ParamMode::InOut(ret) = *mode else {
+                continue;
+            };
+            let Operand::Local(x) = *arg else {
+                unreachable!("array argument is not a local");
+            };
+            let dest = dests[ret];
+            let ty = self.ty(x);
+
+            // `x` is overwritten by the result, so it doesn't matter that its
+            // old value is lost, even if `x` is our own in/out parameter.
+            let in_place =
+                dest == x && passed_once(x) && self.param_mode(x) != Some(ParamMode::Read);
+
+            if in_place {
+                // `x = f(x)`: `x` is updated where it is.
+            } else if !arg_locals.contains(&dest) {
+                // Nothing else in the call reads `dest`, so fill it first.
+                let (to, from) = (self.slot(dest), self.slot(x));
+                self.memcpy(&to, &from, ty);
+            } else {
+                let temp = self.temp_array(ty);
+                let from = self.slot(x);
+                self.memcpy(&temp, &from, ty);
+                ret_ptrs[ret] = temp.clone();
+                copy_back.push((temp, dest));
+            }
+        }
+
+        // Storage the callee writes during the call.
+        let written = ret_ptrs.iter().cloned().collect::<HashSet<_>>();
+        let mut call_args = ret_ptrs.iter().map(|ptr| format!("ptr {ptr}")).collect::<Vec<_>>();
+
+        for (arg, mode) in args.iter().zip(modes) {
+            let lend = match (mode, arg) {
+                (ParamMode::Value, _) => {
+                    let ty = llvm_type(self.operand_type(*arg));
+                    let value = self.operand(*arg);
+                    call_args.push(format!("{ty} {value}"));
+                    continue;
+                }
+                (ParamMode::InOut(_), _) => continue,
+                (ParamMode::Read, Operand::Local(x)) => !written.contains(&self.slot(*x)),
+                (ParamMode::Consume, Operand::Local(x)) => {
+                    self.owns(*x)
+                        && passed_once(*x)
+                        && !live_after.contains(x)
+                        && !dests.contains(x)
+                }
+                _ => unreachable!("array argument is not a local"),
+            };
+
+            let Operand::Local(x) = *arg else { unreachable!() };
+
+            if lend {
+                call_args.push(format!("ptr {}", self.slot(x)));
+            } else {
+                let ty = self.ty(x);
+                let temp = self.temp_array(ty);
+                let from = self.slot(x);
+                self.memcpy(&temp, &from, ty);
+                call_args.push(format!("ptr {temp}"));
+            }
+        }
+
+        let name = symbol(&self.program.function(func).name);
+        self.line(format!("call void @{name}({})", call_args.join(", ")));
+
+        for (temp, dest) in copy_back {
+            let ty = self.ty(dest);
+            let to = self.slot(dest);
+            self.memcpy(&to, &temp, ty);
         }
     }
 
@@ -318,8 +448,10 @@ impl<'a> FunctionEmitter<'a> {
 
         match value {
             Rvalue::Use(Operand::Local(src)) => {
-                if *src != dest {
-                    self.memcpy(&slot(dest), &slot(*src), ty);
+                // An in/out parameter returned as itself shares its slot.
+                let (to, from) = (self.slot(dest), self.slot(*src));
+                if to != from {
+                    self.memcpy(&to, &from, ty);
                 }
             }
 
@@ -327,9 +459,9 @@ impl<'a> FunctionEmitter<'a> {
                 for (i, elem) in elems.iter().enumerate() {
                     let value = self.operand(*elem);
                     let ptr = self.register();
+                    let slot = self.slot(dest);
                     self.line(format!(
-                        "{ptr} = getelementptr {array_ty}, ptr {}, i64 0, i64 {i}",
-                        slot(dest)
+                        "{ptr} = getelementptr {array_ty}, ptr {slot}, i64 0, i64 {i}"
                     ));
                     self.line(format!("store {elem_ty} {value}, ptr {ptr}"));
                 }
@@ -347,10 +479,8 @@ impl<'a> FunctionEmitter<'a> {
                 self.line(format!("br label %{head}"));
                 self.start_block(head.clone());
                 self.line(format!("{i} = phi i64 [ 0, %{before} ], [ {next}, %{head} ]"));
-                self.line(format!(
-                    "{ptr} = getelementptr {array_ty}, ptr {}, i64 0, i64 {i}",
-                    slot(dest)
-                ));
+                let slot = self.slot(dest);
+                self.line(format!("{ptr} = getelementptr {array_ty}, ptr {slot}, i64 0, i64 {i}"));
                 self.line(format!("store {elem_ty} {value}, ptr {ptr}"));
                 self.line(format!("{next} = add i64 {i}, 1"));
                 self.line(format!("{done} = icmp eq i64 {next}, {len}"));
@@ -484,6 +614,90 @@ mod tests {
             };
             assert_eq!(status.code(), Some(0), "{name} exited with {status}");
         }
+    }
+
+    /// Number of array copies in the emitted code of each named function.
+    fn copies(source: &str, functions: &[&str]) -> Vec<usize> {
+        let program = check::check(&syntax::parse(source).unwrap()).unwrap();
+        let llvm = emit(&crate::ir::lower(&program), "test");
+
+        functions
+            .iter()
+            .map(|name| {
+                let start = llvm.find(&format!("define void @rj_{name}(")).unwrap();
+                let end = start + llvm[start..].find("\n}\n").unwrap();
+                llvm[start..end].matches("@llvm.memcpy").count()
+            })
+            .collect()
+    }
+
+    const SET: &str = "fn set(a: [i32; 1000], i: i32, v: i32): [i32; 1000] { a[i] = v return a }";
+
+    #[test]
+    fn overwriting_call_copies_nothing() {
+        let source = format!(
+            "{SET}
+             fn main(): i32 {{
+               a: [i32; 1000]
+               i: i32
+               a, i = [0; 1000], 0
+               while i < 1000 {{
+                 a = set(a, i, i)
+                 i = i + 1
+               }}
+               return a[999] - 999
+             }}"
+        );
+
+        assert_eq!(copies(&source, &["set", "main"]), [0, 0]);
+    }
+
+    #[test]
+    fn read_only_argument_is_lent() {
+        let source = "
+            fn first(a: [i32; 1000]): i32 { return a[0] }
+            fn main(): i32 {
+              a: [i32; 1000]
+              a = [0; 1000]
+              return first(a) + first(a)
+            }";
+
+        assert_eq!(copies(source, &["first", "main"]), [0, 0]);
+    }
+
+    #[test]
+    fn result_into_other_variable_copies_once() {
+        let source = format!(
+            "{SET}
+             fn main(): i32 {{
+               a: [i32; 1000]
+               b: [i32; 1000]
+               a = [0; 1000]
+               b = set(a, 0, 1)
+               return a[0] + b[0] - 1
+             }}"
+        );
+
+        assert_eq!(copies(&source, &["main"]), [1]);
+    }
+
+    #[test]
+    fn consumed_argument_copied_only_while_needed() {
+        let source = "
+            fn clobber(a: [i32; 1000]): i32 { a[0] = 1 return a[0] }
+            fn main(): i32 {
+              a: [i32; 1000]
+              x: i32
+              a = [0; 1000]
+              x = clobber(a)
+              x = x + a[0]
+              x = x + clobber(a)
+              return x - 2
+            }";
+
+        // The first call needs a copy because `a` is read afterwards; the
+        // second can hand `a` over.
+        assert_eq!(copies(source, &["main"]), [1]);
     }
 
     #[test]

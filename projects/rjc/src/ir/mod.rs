@@ -17,6 +17,8 @@
 mod lower;
 #[cfg(test)]
 mod interp;
+pub mod liveness;
+pub mod modes;
 
 use std::fmt;
 
@@ -183,6 +185,12 @@ impl Function {
             typed(&self.params),
             typed(&self.returns)
         )?;
+
+        for (param, mode) in self.params.iter().zip(modes::param_modes(self)) {
+            if mode != modes::ParamMode::Value {
+                writeln!(f, "    // {param}: {mode}")?;
+            }
+        }
 
         for (i, local) in self.locals.iter().enumerate() {
             write!(f, "    {}: {}", LocalId(i), local.ty)?;

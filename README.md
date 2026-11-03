@@ -100,11 +100,22 @@ cargo run -- <FILE> --emit-ir
 A small interpreter (used by the tests) runs the IR directly, so lowering is
 checked against every program in `test/` without needing LLVM.
 
-### Optimiser
+### Parameter modes (`src/ir/modes.rs`, `src/ir/liveness.rs`)
 
-**Not implemented** Infers how each function uses its parameters (read only, in/out,
-consumed) and turns value copies into in-place updates where the old value is no
-longer needed.
+Arrays are values, but copying them is expensive. Each function's array
+parameters are classified from its own body (`--emit-ir` shows the result):
+
+- **in/out**: every `return` hands back the parameter itself in the same slot.
+  The parameter shares storage with that return value, so `x = f(x)` passes
+  `x`'s own buffer and nothing is copied.
+- **read**: never written, so callers lend their array instead of copying it.
+- **consume**: written but not returned. The caller hands over its own array
+  when liveness shows it no longer needs it, and passes a copy otherwise.
+
+A copy is only made when the caller still needs the old value or the same
+storage would otherwise be visible twice in one call. `test/array_alias.rj`
+covers those cases, and codegen tests count the copies emitted for the common
+patterns.
 
 ### LLVM Generator (`src/codegen.rs`)
 
