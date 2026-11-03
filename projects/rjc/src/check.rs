@@ -285,17 +285,7 @@ impl FunctionChecker<'_> {
                 then_block,
                 else_block,
             } => {
-                let cond = self.expr(cond).and_then(|cond| {
-                    if cond.ty != Type::Bool {
-                        self.error(
-                            format!("condition must be bool, found {}", cond.ty),
-                            cond.span,
-                        );
-                        return None;
-                    }
-
-                    Some(cond)
-                });
+                let cond = self.condition(cond);
 
                 let before = self.assigned.clone();
                 let then_block = self.block(then_block);
@@ -332,6 +322,27 @@ impl FunctionChecker<'_> {
                 )
             }
 
+            ast::StmtKind::While { cond, body } => {
+                let cond = self.condition(cond);
+
+                // The body may run zero times, so assignments in it don't
+                // count after the loop. Every iteration starts with at least
+                // what was assigned before the loop, so checking the body
+                // against that is enough.
+                let before = self.assigned.clone();
+                let body = self.block(body);
+                self.assigned = before;
+
+                // A loop is never treated as returning, even `while true`.
+                (
+                    hir::StmtKind::While {
+                        cond: cond?,
+                        body: body?.0,
+                    },
+                    false,
+                )
+            }
+
             ast::StmtKind::Return(values) => {
                 let (values, types) = self.values(values)?;
                 let returns = self.returns;
@@ -343,6 +354,20 @@ impl FunctionChecker<'_> {
         };
 
         Some((Some(hir::Stmt { kind, span }), diverges))
+    }
+
+    fn condition(&mut self, cond: &ast::Expr) -> Option<hir::Expr> {
+        let cond = self.expr(cond)?;
+
+        if cond.ty != Type::Bool {
+            self.error(
+                format!("condition must be bool, found {}", cond.ty),
+                cond.span,
+            );
+            return None;
+        }
+
+        Some(cond)
     }
 
     /// Checks a value list. Calls that don't return exactly one value
@@ -615,6 +640,25 @@ mod tests {
              }",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn assignment_in_loop_body_only() {
+        let (message, _) = error(
+            "fn main(): i32 {
+               x: i32
+               while false { x = 1 }
+               return x
+             }",
+        );
+        assert_eq!(message, "`x` is used before it is assigned");
+    }
+
+    #[test]
+    fn loop_condition_must_be_bool() {
+        let (message, at) = error("fn main(): i32 { while 0 { } return 0 }");
+        assert_eq!(message, "condition must be bool, found i32");
+        assert_eq!(at, "0");
     }
 
     #[test]

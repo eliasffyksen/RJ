@@ -83,6 +83,10 @@ pub enum StmtKind {
         /// Empty when the source had no `else`.
         else_block: Block,
     },
+    While {
+        cond: Expr,
+        body: Block,
+    },
     Return(Vec<Value>),
 }
 

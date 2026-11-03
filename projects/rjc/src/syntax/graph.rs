@@ -117,6 +117,18 @@ impl Graph<'_> {
                 Ok(node)
             }
 
+            StmtKind::While { cond, body } => {
+                let node = self.node("While")?;
+
+                let child = self.expr(cond)?;
+                self.edge(node, child)?;
+
+                let child = self.block(body)?;
+                self.edge(node, child)?;
+
+                Ok(node)
+            }
+
             StmtKind::Return(values) => {
                 let node = self.node("Return")?;
                 self.exprs(node, values)?;

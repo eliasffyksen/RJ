@@ -50,6 +50,7 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::func_ret => "return statement",
             Rule::assign => "assignment",
             Rule::if_stmt => "if statement",
+            Rule::while_stmt => "while loop",
             Rule::var_decl => "variable declaration",
             Rule::var_type | Rule::ret_type => "type",
             Rule::stmt => "statement",
@@ -172,6 +173,15 @@ fn stmt(pair: Pair<Rule>) -> Result<Stmt> {
                 cond: expr(inner.next().unwrap())?,
                 then_block: block(inner.next().unwrap())?,
                 else_block: inner.next().map(block).transpose()?,
+            }
+        }
+
+        Rule::while_stmt => {
+            let mut inner = pair.into_inner();
+
+            StmtKind::While {
+                cond: expr(inner.next().unwrap())?,
+                body: block(inner.next().unwrap())?,
             }
         }
 

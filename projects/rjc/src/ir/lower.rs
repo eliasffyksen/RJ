@@ -134,6 +134,8 @@ impl Builder<'_> {
                 else_block,
             } => self.if_(cond, then_block, else_block),
 
+            hir::StmtKind::While { cond, body } => self.while_(cond, body),
+
             hir::StmtKind::Return(values) => {
                 // Return slots are never read by the function itself, so the
                 // values can be written straight into them in order.
@@ -233,6 +235,38 @@ impl Builder<'_> {
         }
 
         self.current = Some(join);
+    }
+
+    /// ```text
+    /// current: goto header
+    /// header:  branch cond, body, exit
+    /// body:    ...; goto header
+    /// exit:
+    /// ```
+    fn while_(&mut self, cond: &hir::Expr, body: &hir::Block) {
+        let header = self.new_block();
+        self.terminate(Terminator::Goto(header));
+
+        // The condition is evaluated in the header, on every iteration.
+        self.current = Some(header);
+        let cond = self.operand(cond);
+        let body_start = self.new_block();
+        let exit = self.new_block();
+
+        self.terminate(Terminator::Branch {
+            cond,
+            then_block: body_start,
+            else_block: exit,
+        });
+
+        self.current = Some(body_start);
+        self.block(body);
+
+        if self.current.is_some() {
+            self.terminate(Terminator::Goto(header));
+        }
+
+        self.current = Some(exit);
     }
 
     fn call(&mut self, call: &hir::Call, dests: Vec<LocalId>) {

@@ -58,6 +58,10 @@ pub enum StmtKind {
         then_block: Block,
         else_block: Option<Block>,
     },
+    While {
+        cond: Expr,
+        body: Block,
+    },
     Return(Vec<Expr>),
 }
 

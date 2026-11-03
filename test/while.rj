@@ -1,0 +1,59 @@
+fn sum_to(n: i32): i32 {
+  sum: i32
+  i: i32
+  sum, i = 0, 1
+
+  while i <= n {
+    sum = sum + i
+    i = i + 1
+  }
+
+  return sum
+}
+
+fn fib(n: i32): i32 {
+  a: i32
+  b: i32
+  a, b = 1, 1
+
+  while n > 2 {
+    a, b = b, a + b
+    n = n - 1
+  }
+
+  return b
+}
+
+fn first_over(limit: i32): i32 {
+  i: i32
+  i = 0
+
+  while true {
+    if i > limit {
+      return i
+    }
+    i = i + 1
+  }
+
+  return 0 - 1
+}
+
+fn main(): i32 {
+  if sum_to(0) != 0 {
+    return 1
+  }
+
+  if sum_to(10) != 55 {
+    return 1
+  }
+
+  if fib(15) != 610 {
+    return 1
+  }
+
+  if first_over(7) != 8 {
+    return 1
+  }
+
+  return 0
+}

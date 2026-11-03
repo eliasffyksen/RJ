@@ -12,7 +12,7 @@ ret_type = {
 }
 
 keyword = @{
-  ("fn" | "if" | "else" | "return" | "true" | "false")
+  ("fn" | "if" | "else" | "while" | "return" | "true" | "false")
   ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -30,6 +30,11 @@ stmt = {
   | assign
   | func_call
   | if_stmt
+  | while_stmt
+}
+
+while_stmt = {
+  "while" ~ expr_elm ~ block
 }
 
 if_stmt = {
