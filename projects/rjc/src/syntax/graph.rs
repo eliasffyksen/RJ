@@ -10,6 +10,17 @@ pub fn write(module: &Module, out: &mut dyn Write) -> io::Result<()> {
     let mut graph = Graph { out, next_id: 0 };
     let root = graph.node("Module")?;
 
+    for def in &module.structs {
+        let fields = def
+            .fields
+            .iter()
+            .map(|field| format!("{}: {}", field.name.name, field.ty))
+            .collect::<Vec<_>>()
+            .join("|");
+        let child = graph.node(&format!("Struct|{}|{fields}", def.name.name))?;
+        graph.edge(root, child)?;
+    }
+
     for function in &module.functions {
         let child = graph.function(function)?;
         graph.edge(root, child)?;
@@ -47,7 +58,7 @@ impl Graph<'_> {
         let returns = function
             .returns
             .iter()
-            .map(Type::to_string)
+            .map(TypeExpr::to_string)
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -89,9 +100,14 @@ impl Graph<'_> {
                     let child = self.node(&format!("Place|{}", target.name.name))?;
                     self.edge(node, child)?;
 
-                    if let Some(index) = &target.index {
-                        let index = self.expr(index)?;
-                        self.edge(child, index)?;
+                    for elem in &target.path {
+                        let elem = match elem {
+                            PlaceElem::Index(index) => self.expr(index)?,
+                            PlaceElem::Field(field) => {
+                                self.node(&format!("Field|{}", field.name))?
+                            }
+                        };
+                        self.edge(child, elem)?;
                     }
                 }
 
@@ -172,6 +188,24 @@ impl Graph<'_> {
                 let node = self.node(&format!("Array|len: {len}"))?;
                 let child = self.expr(value)?;
                 self.edge(node, child)?;
+                Ok(node)
+            }
+            ExprKind::Field { base, field } => {
+                let node = self.node(&format!("Field|{}", field.name))?;
+                let child = self.expr(base)?;
+                self.edge(node, child)?;
+                Ok(node)
+            }
+            ExprKind::StructLit { name, fields } => {
+                let node = self.node(&format!("Struct|{}", name.name))?;
+
+                for (field, value) in fields {
+                    let field = self.node(&format!("Field|{}", field.name))?;
+                    self.edge(node, field)?;
+                    let value = self.expr(value)?;
+                    self.edge(field, value)?;
+                }
+
                 Ok(node)
             }
             ExprKind::Index { base, index } => {

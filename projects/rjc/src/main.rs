@@ -7,6 +7,7 @@ mod diagnostic;
 mod hir;
 mod ir;
 mod syntax;
+mod types;
 
 fn main() -> ExitCode {
     let config = config::Config::new();

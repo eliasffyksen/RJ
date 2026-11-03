@@ -3,9 +3,9 @@
 //!
 //! - Parameters, return slots, user variables and temporaries are all locals.
 //! - Statements write whole locals (`dest = ...` or a call writing its
-//!   `dests`), except `array[index] = value`, which updates one element of
-//!   an array local in place. Operands only ever read locals, and reading an
-//!   array local copies it. That makes def/use and
+//!   `dests`), except `local.path = value`, which updates one part of an
+//!   array or struct local in place. Operands only ever read locals, and
+//!   reading an array or struct local copies it. That makes def/use and
 //!   liveness of every value explicit, which is what the parameter-mode
 //!   analysis needs: `x = f(x)` appears as `call f(x) -> [x]`.
 //! - A call reads all of its arguments before writing any of its `dests`.
@@ -22,7 +22,7 @@ pub mod modes;
 
 use std::fmt;
 
-pub use crate::hir::{BinOp, FuncId, LocalId, Type};
+pub use crate::hir::{BinOp, FuncId, LocalId, StructDef, Type};
 pub use lower::lower;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,6 +30,7 @@ pub struct BlockId(pub usize);
 
 #[derive(Debug)]
 pub struct Program {
+    pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
     pub main: FuncId,
 }
@@ -92,12 +93,21 @@ pub enum Stmt {
         args: Vec<Operand>,
         dests: Vec<LocalId>,
     },
-    /// `array[index] = value`: updates one element, keeping the others.
-    SetIndex {
-        array: LocalId,
-        index: Operand,
+    /// `local.path = value`: updates one part, keeping the rest. The path
+    /// is never empty.
+    SetPlace {
+        local: LocalId,
+        path: Vec<Elem>,
         value: Operand,
     },
+}
+
+/// One step of a path into an array or struct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Elem {
+    Index(Operand),
+    /// Field number, in declaration order.
+    Field(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,8 +126,10 @@ pub enum Rvalue {
     Array(Vec<Operand>),
     /// `[value; len]`
     Repeat(Operand, u32),
-    /// `array[index]`
-    Index(LocalId, Operand),
+    /// Field values in declaration order.
+    Struct(Vec<Operand>),
+    /// `local.path`: reads a part of a local. The path is never empty.
+    Read(LocalId, Vec<Elem>),
 }
 
 #[derive(Debug)]
@@ -207,12 +219,14 @@ impl Function {
 
             for stmt in &block.stmts {
                 match stmt {
+                    Stmt::Assign {
+                        dest,
+                        value: Rvalue::Read(local, path),
+                    } => writeln!(f, "    {dest} = {}", self.place_str(program, *local, path))?,
                     Stmt::Assign { dest, value } => writeln!(f, "    {dest} = {value}")?,
-                    Stmt::SetIndex {
-                        array,
-                        index,
-                        value,
-                    } => writeln!(f, "    {array}[{index}] = {value}")?,
+                    Stmt::SetPlace { local, path, value } => {
+                        writeln!(f, "    {} = {value}", self.place_str(program, *local, path))?
+                    }
                     Stmt::Call { func, args, dests } => {
                         let args = args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
                         let dests = dests.iter().map(|d| d.to_string()).collect::<Vec<_>>();
@@ -239,6 +253,31 @@ impl Function {
         }
 
         writeln!(f, "}}")
+    }
+}
+
+impl Function {
+    /// `_1.items[_2].x`, with field names looked up from the types.
+    fn place_str(&self, program: &Program, local: LocalId, path: &[Elem]) -> String {
+        let mut out = local.to_string();
+        let mut ty = &self.local(local).ty;
+
+        for elem in path {
+            match (elem, ty) {
+                (Elem::Index(index), Type::Array(elem, _)) => {
+                    out += &format!("[{index}]");
+                    ty = elem;
+                }
+                (Elem::Field(field), Type::Struct(id, _)) => {
+                    let field = &program.structs[id.0].fields[*field];
+                    out += &format!(".{}", field.name);
+                    ty = &field.ty;
+                }
+                _ => unreachable!("path does not match type {ty}"),
+            }
+        }
+
+        out
     }
 }
 
@@ -274,7 +313,20 @@ impl fmt::Display for Rvalue {
                 write!(f, "[{}]", elems.join(", "))
             }
             Rvalue::Repeat(value, len) => write!(f, "[{value}; {len}]"),
-            Rvalue::Index(array, index) => write!(f, "{array}[{index}]"),
+            Rvalue::Struct(fields) => {
+                let fields = fields.iter().map(|e| e.to_string()).collect::<Vec<_>>();
+                write!(f, "{{{}}}", fields.join(", "))
+            }
+            Rvalue::Read(local, path) => {
+                write!(f, "{local}")?;
+                for elem in path {
+                    match elem {
+                        Elem::Index(index) => write!(f, "[{index}]")?,
+                        Elem::Field(field) => write!(f, ".{field}")?,
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }

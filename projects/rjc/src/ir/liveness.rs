@@ -16,6 +16,14 @@ fn operand_uses(operand: &Operand, uses: &mut Vec<LocalId>) {
     }
 }
 
+fn path_uses(path: &[Elem], uses: &mut Vec<LocalId>) {
+    for elem in path {
+        if let Elem::Index(index) = elem {
+            operand_uses(index, uses);
+        }
+    }
+}
+
 /// The locals a statement reads and the locals it overwrites completely.
 fn uses_and_defs(stmt: &Stmt) -> (Vec<LocalId>, Vec<LocalId>) {
     let mut uses = vec![];
@@ -30,23 +38,21 @@ fn uses_and_defs(stmt: &Stmt) -> (Vec<LocalId>, Vec<LocalId>) {
                     operand_uses(lhs, &mut uses);
                     operand_uses(rhs, &mut uses);
                 }
-                Rvalue::Array(elems) => elems.iter().for_each(|e| operand_uses(e, &mut uses)),
-                Rvalue::Index(array, index) => {
-                    uses.push(*array);
-                    operand_uses(index, &mut uses);
+                Rvalue::Array(elems) | Rvalue::Struct(elems) => {
+                    elems.iter().for_each(|e| operand_uses(e, &mut uses))
+                }
+                Rvalue::Read(local, path) => {
+                    uses.push(*local);
+                    path_uses(path, &mut uses);
                 }
             }
             (uses, vec![*dest])
         }
 
-        // Updates one element, so the rest of the old value is still used.
-        Stmt::SetIndex {
-            array,
-            index,
-            value,
-        } => {
-            uses.push(*array);
-            operand_uses(index, &mut uses);
+        // Updates one part, so the rest of the old value is still used.
+        Stmt::SetPlace { local, path, value } => {
+            uses.push(*local);
+            path_uses(path, &mut uses);
             operand_uses(value, &mut uses);
             (uses, vec![])
         }

@@ -1,0 +1,137 @@
+struct Point {
+  x: i32,
+  y: i32,
+}
+
+struct Node {
+  value: i32,
+  edges: [i32; 2],
+  visited: bool,
+}
+
+struct Graph {
+  nodes: [Node; 3],
+  origin: Point,
+}
+
+struct Empty {}
+
+fn point(x: i32, y: i32): Point {
+  // Fields may be given in any order.
+  return Point(y: y, x: x)
+}
+
+fn moved(p: Point, dx: i32): Point {
+  p.x = p.x + dx
+  return p
+}
+
+fn total(g: Graph): i32 {
+  sum: i32
+  i: i32
+  sum, i = 0, 0
+
+  while i < 3 {
+    sum = sum + g.nodes[i].value
+    i = i + 1
+  }
+
+  return sum
+}
+
+fn visit(g: Graph, i: i32): Graph {
+  g.nodes[i].visited = true
+  g.nodes[i].value = g.nodes[i].value + 10
+  return g
+}
+
+fn main(): i32 {
+  p: Point
+  p = point(1, 2)
+  if p.x != 1 {
+    return 1
+  }
+  if p.y != 2 {
+    return 2
+  }
+
+  // Assignment copies.
+  q: Point
+  q = p
+  q.x = 50
+  if p.x != 1 {
+    return 3
+  }
+
+  // In place through a function.
+  p = moved(p, 4)
+  if p.x != 5 {
+    return 4
+  }
+
+  // Field of a call result.
+  if point(7, 8).y != 8 {
+    return 5
+  }
+
+  n: Node
+  n = Node(value: 1, edges: [1, 2], visited: false)
+
+  g: Graph
+  g = Graph(nodes: [n; 3], origin: p)
+  g.nodes[1].value = 2
+  g.nodes[2].value = 3
+  g.nodes[2].edges[1] = 0
+
+  if total(g) != 6 {
+    return 6
+  }
+
+  // Nested write through a function, in place.
+  g = visit(g, 1)
+  if g.nodes[1].value != 12 {
+    return 7
+  }
+  if g.nodes[1].visited != true {
+    return 8
+  }
+  if g.nodes[0].visited {
+    return 9
+  }
+
+  // The original node is untouched.
+  if n.value != 1 {
+    return 10
+  }
+
+  // Parts of the same struct swapped in one assignment.
+  g.nodes[0], g.nodes[2] = g.nodes[2], g.nodes[0]
+  if g.nodes[0].value != 3 {
+    return 11
+  }
+  if g.nodes[0].edges[1] != 0 {
+    return 12
+  }
+  if g.nodes[2].edges[1] != 2 {
+    return 13
+  }
+
+  // Whole nested struct replaced.
+  g.origin = point(9, 9)
+  if g.origin.x + g.origin.y != 18 {
+    return 14
+  }
+
+  // Arrays of arrays.
+  grid: [[i32; 2]; 2]
+  grid = [[1, 2], [3, 4]]
+  grid[1][0] = grid[0][1] + 10
+  if grid[1][0] != 12 {
+    return 15
+  }
+
+  e: Empty
+  e = Empty()
+
+  return 0
+}

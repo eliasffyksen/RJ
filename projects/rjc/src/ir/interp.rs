@@ -8,6 +8,31 @@ pub enum Value {
     Int(i32),
     Bool(bool),
     Array(Vec<Value>),
+    Struct(Vec<Value>),
+}
+
+/// An evaluated path step.
+enum Step {
+    Index(Value),
+    Field(usize),
+}
+
+/// The part of `value` that `path` leads to.
+fn part<'v>(value: &'v mut Value, path: &[Step]) -> &'v mut Value {
+    let Some((step, rest)) = path.split_first() else {
+        return value;
+    };
+
+    let inner = match (step, value) {
+        (Step::Index(index), Value::Array(elems)) => {
+            let i = array_index(elems, index.clone());
+            &mut elems[i]
+        }
+        (Step::Field(field), Value::Struct(fields)) => &mut fields[*field],
+        (_, value) => panic!("path does not match value {value:?}"),
+    };
+
+    part(inner, rest)
 }
 
 fn array_index(array: &[Value], index: Value) -> usize {
@@ -43,6 +68,15 @@ pub fn call(program: &Program, func: FuncId, args: Vec<Value>) -> Vec<Value> {
         Operand::Bool(value) => Value::Bool(*value),
     };
 
+    let eval_path = |locals: &[Option<Value>], path: &[Elem]| {
+        path.iter()
+            .map(|elem| match elem {
+                Elem::Index(index) => Step::Index(read(locals, index)),
+                Elem::Field(field) => Step::Field(*field),
+            })
+            .collect::<Vec<_>>()
+    };
+
     let mut block = BlockId(0);
 
     loop {
@@ -62,29 +96,25 @@ pub fn call(program: &Program, func: FuncId, args: Vec<Value>) -> Vec<Value> {
                         Rvalue::Repeat(value, len) => {
                             Value::Array(vec![read(&locals, value); *len as usize])
                         }
-                        Rvalue::Index(array, index) => {
-                            let Value::Array(array) = read(&locals, &Operand::Local(*array)) else {
-                                panic!("indexing a non-array");
-                            };
-                            let i = array_index(&array, read(&locals, index));
-                            array[i].clone()
+                        Rvalue::Struct(fields) => {
+                            Value::Struct(fields.iter().map(|e| read(&locals, e)).collect())
+                        }
+                        Rvalue::Read(local, path) => {
+                            let steps = eval_path(&locals, path);
+                            let mut value = read(&locals, &Operand::Local(*local));
+                            part(&mut value, &steps).clone()
                         }
                     };
                     locals[dest.0] = Some(value);
                 }
 
-                Stmt::SetIndex {
-                    array,
-                    index,
-                    value,
-                } => {
-                    let index = read(&locals, index);
+                Stmt::SetPlace { local, path, value } => {
+                    let steps = eval_path(&locals, path);
                     let value = read(&locals, value);
-                    let Some(Value::Array(array)) = &mut locals[array.0] else {
-                        panic!("{}: element write to unassigned or non-array local", function.name);
+                    let Some(target) = &mut locals[local.0] else {
+                        panic!("{}: partial write to unassigned local {local}", function.name);
                     };
-                    let i = array_index(array, index);
-                    array[i] = value;
+                    *part(target, &steps) = value;
                 }
 
                 Stmt::Call { func, args, dests } => {

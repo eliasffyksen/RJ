@@ -39,6 +39,14 @@ pub fn emit(program: &Program, source_name: &str) -> String {
     writeln!(out, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)").unwrap();
     writeln!(out, "declare void @llvm.trap()").unwrap();
 
+    if !program.structs.is_empty() {
+        writeln!(out).unwrap();
+    }
+    for def in &program.structs {
+        let fields = def.fields.iter().map(|f| llvm_type(&f.ty)).collect::<Vec<_>>();
+        writeln!(out, "%struct.{} = type {{ {} }}", def.name, fields.join(", ")).unwrap();
+    }
+
     let modes = program.functions.iter().map(param_modes).collect::<Vec<_>>();
 
     for (i, function) in program.functions.iter().enumerate() {
@@ -53,25 +61,21 @@ pub fn symbol(name: &str) -> String {
     format!("rj_{name}")
 }
 
-fn llvm_type(ty: Type) -> String {
+fn llvm_type(ty: &Type) -> String {
     match ty {
         Type::I32 => "i32".to_string(),
         Type::Bool => "i1".to_string(),
-        Type::Array(elem, len) => format!("[{len} x {}]", llvm_type(elem.ty())),
+        Type::Array(elem, len) => format!("[{len} x {}]", llvm_type(elem)),
+        Type::Struct(_, name) => format!("%struct.{name}"),
     }
 }
 
-/// Size in bytes, as laid out in memory.
-fn size_of(ty: Type) -> u64 {
-    match ty {
-        Type::I32 => 4,
-        Type::Bool => 1,
-        Type::Array(elem, len) => size_of(elem.ty()) * u64::from(len),
-    }
-}
-
-fn is_array(ty: Type) -> bool {
-    matches!(ty, Type::Array(..))
+/// Size in bytes as LLVM lays the type out, as a constant expression.
+fn size_of(ty: &Type) -> String {
+    format!(
+        "ptrtoint (ptr getelementptr ({}, ptr null, i32 1) to i64)",
+        llvm_type(ty)
+    )
 }
 
 fn local_slot(id: LocalId) -> String {
@@ -140,7 +144,7 @@ impl<'a> FunctionEmitter<'a> {
     }
 
     fn ty(&self, id: LocalId) -> Type {
-        self.function.local(id).ty
+        self.function.local(id).ty.clone()
     }
 
     fn param_mode(&self, id: LocalId) -> Option<ParamMode> {
@@ -165,7 +169,7 @@ impl<'a> FunctionEmitter<'a> {
     }
 
     /// A stack buffer for a temporary copy, allocated in the entry block.
-    fn temp_array(&mut self, ty: Type) -> String {
+    fn temp_array(&mut self, ty: &Type) -> String {
         let name = format!("%copy{}", self.fresh_label(""));
         writeln!(self.entry, "  {name} = alloca {}", llvm_type(ty)).unwrap();
         name
@@ -181,7 +185,7 @@ impl<'a> FunctionEmitter<'a> {
         for (param, mode) in function.params.iter().zip(self.own_modes) {
             match mode {
                 ParamMode::Value => {
-                    params.push(format!("{} %p{}", llvm_type(self.ty(*param)), param.0))
+                    params.push(format!("{} %p{}", llvm_type(&self.ty(*param)), param.0))
                 }
                 ParamMode::Read | ParamMode::Consume => {
                     params.push(format!("ptr {}", local_slot(*param)))
@@ -192,10 +196,10 @@ impl<'a> FunctionEmitter<'a> {
 
         for (i, local) in function.locals.iter().enumerate() {
             let id = LocalId(i);
-            let is_array_param = function.params.contains(&id) && is_array(local.ty);
+            let is_aggregate_param = function.params.contains(&id) && local.ty.is_aggregate();
 
-            if local.kind != LocalKind::Return && !is_array_param {
-                writeln!(self.entry, "  {} = alloca {}", local_slot(id), llvm_type(local.ty))
+            if local.kind != LocalKind::Return && !is_aggregate_param {
+                writeln!(self.entry, "  {} = alloca {}", local_slot(id), llvm_type(&local.ty))
                     .unwrap();
             }
         }
@@ -203,11 +207,11 @@ impl<'a> FunctionEmitter<'a> {
         for param in &function.params {
             let ty = self.ty(*param);
 
-            if !is_array(ty) {
+            if ty.is_scalar() {
                 writeln!(
                     self.entry,
                     "  store {} %p{}, ptr {}",
-                    llvm_type(ty),
+                    llvm_type(&ty),
                     param.0,
                     local_slot(*param)
                 )
@@ -253,11 +257,11 @@ impl<'a> FunctionEmitter<'a> {
         match operand {
             Operand::Local(id) => {
                 let ty = self.ty(id);
-                debug_assert!(!is_array(ty), "array used as a scalar operand");
+                debug_assert!(ty.is_scalar(), "aggregate used as a scalar operand");
 
                 let register = self.register();
                 let slot = self.slot(id);
-                self.line(format!("{register} = load {}, ptr {slot}", llvm_type(ty)));
+                self.line(format!("{register} = load {}, ptr {slot}", llvm_type(&ty)));
                 register
             }
             Operand::Int(value) => value.to_string(),
@@ -265,21 +269,15 @@ impl<'a> FunctionEmitter<'a> {
         }
     }
 
-    fn memcpy(&mut self, dest: &str, src: &str, ty: Type) {
+    fn memcpy(&mut self, dest: &str, src: &str, ty: &Type) {
         self.line(format!(
             "call void @llvm.memcpy.p0.p0.i64(ptr {dest}, ptr {src}, i64 {}, i1 false)",
             size_of(ty)
         ));
     }
 
-    /// Bounds-checks `index` and returns a pointer to that element.
-    fn element_ptr(&mut self, array: LocalId, index: Operand) -> String {
-        let ty = self.ty(array);
-        let Type::Array(_, len) = ty else {
-            unreachable!("indexing a non-array local");
-        };
-
-        let index = self.operand(index);
+    /// Bounds-checks `index` against `len` and continues in a new block.
+    fn bounds_check(&mut self, index: &str, len: u32) {
         let in_bounds = self.register();
         let next = self.fresh_label("inbounds");
 
@@ -288,54 +286,79 @@ impl<'a> FunctionEmitter<'a> {
         self.line(format!("br i1 {in_bounds}, label %{next}, label %trap"));
         self.uses_trap = true;
         self.start_block(next);
+    }
 
-        let ptr = self.register();
-        let slot = self.slot(array);
-        self.line(format!(
-            "{ptr} = getelementptr {}, ptr {slot}, i64 0, i32 {index}",
-            llvm_type(ty)
-        ));
-        ptr
+    /// A pointer to the part of `local` that `path` leads to, and its type.
+    /// Indexes are bounds-checked.
+    fn place_ptr(&mut self, local: LocalId, path: &[Elem]) -> (String, Type) {
+        let mut ptr = self.slot(local);
+        let mut ty = self.ty(local);
+
+        for elem in path {
+            let next = self.register();
+
+            ty = match (elem, &ty) {
+                (Elem::Index(index), Type::Array(elem_ty, len)) => {
+                    let index = self.operand(*index);
+                    self.bounds_check(&index, *len);
+                    self.line(format!(
+                        "{next} = getelementptr {}, ptr {ptr}, i64 0, i32 {index}",
+                        llvm_type(&ty)
+                    ));
+                    (**elem_ty).clone()
+                }
+                (Elem::Field(field), Type::Struct(id, _)) => {
+                    self.line(format!(
+                        "{next} = getelementptr {}, ptr {ptr}, i32 0, i32 {field}",
+                        llvm_type(&ty)
+                    ));
+                    self.program.structs[id.0].fields[*field].ty.clone()
+                }
+                _ => unreachable!("path does not match type {ty}"),
+            };
+            ptr = next;
+        }
+
+        (ptr, ty)
+    }
+
+    /// Stores `value` of type `ty` at `ptr`; aggregates are copied.
+    fn store_at(&mut self, ptr: &str, value: Operand, ty: &Type) {
+        if ty.is_aggregate() {
+            let Operand::Local(src) = value else {
+                unreachable!("aggregate operand is not a local");
+            };
+            // An in/out parameter returned as itself shares its slot.
+            let from = self.slot(src);
+            if from != ptr {
+                self.memcpy(ptr, &from, ty);
+            }
+        } else {
+            let value = self.operand(value);
+            self.line(format!("store {} {value}, ptr {ptr}", llvm_type(ty)));
+        }
+    }
+
+    /// Copies the value of type `ty` at `from` to `to`.
+    fn copy_at(&mut self, to: &str, from: &str, ty: &Type) {
+        if ty.is_aggregate() {
+            self.memcpy(to, from, ty);
+        } else {
+            let register = self.register();
+            let llvm_ty = llvm_type(ty);
+            self.line(format!("{register} = load {llvm_ty}, ptr {from}"));
+            self.line(format!("store {llvm_ty} {register}, ptr {to}"));
+        }
     }
 
     /// `block` and `index` locate the statement, for liveness.
     fn stmt(&mut self, stmt: &Stmt, block: usize, index: usize) {
         match stmt {
-            Stmt::Assign { dest, value } if is_array(self.ty(*dest)) => {
-                self.array_assign(*dest, value)
-            }
+            Stmt::Assign { dest, value } => self.assign(*dest, value),
 
-            Stmt::Assign { dest, value } => {
-                let value = match value {
-                    Rvalue::Use(operand) => self.operand(*operand),
-                    Rvalue::Binary(op, lhs, rhs) => self.binary(*op, *lhs, *rhs),
-                    Rvalue::Index(array, index) => {
-                        let ptr = self.element_ptr(*array, *index);
-                        let register = self.register();
-                        let ty = llvm_type(self.ty(*dest));
-                        self.line(format!("{register} = load {ty}, ptr {ptr}"));
-                        register
-                    }
-                    Rvalue::Array(_) | Rvalue::Repeat(..) => {
-                        unreachable!("array value assigned to a scalar")
-                    }
-                };
-                let ty = llvm_type(self.ty(*dest));
-
-                let slot = self.slot(*dest);
-                self.line(format!("store {ty} {value}, ptr {slot}"));
-            }
-
-            Stmt::SetIndex {
-                array,
-                index,
-                value,
-            } => {
-                let ty = llvm_type(self.operand_type(*value));
-                let value = self.operand(*value);
-                let ptr = self.element_ptr(*array, *index);
-
-                self.line(format!("store {ty} {value}, ptr {ptr}"));
+            Stmt::SetPlace { local, path, value } => {
+                let (ptr, ty) = self.place_ptr(*local, path);
+                self.store_at(&ptr, *value, &ty);
             }
 
             Stmt::Call { func, args, dests } => {
@@ -382,11 +405,11 @@ impl<'a> FunctionEmitter<'a> {
             } else if !arg_locals.contains(&dest) {
                 // Nothing else in the call reads `dest`, so fill it first.
                 let (to, from) = (self.slot(dest), self.slot(x));
-                self.memcpy(&to, &from, ty);
+                self.memcpy(&to, &from, &ty);
             } else {
-                let temp = self.temp_array(ty);
+                let temp = self.temp_array(&ty);
                 let from = self.slot(x);
-                self.memcpy(&temp, &from, ty);
+                self.memcpy(&temp, &from, &ty);
                 ret_ptrs[ret] = temp.clone();
                 copy_back.push((temp, dest));
             }
@@ -399,7 +422,7 @@ impl<'a> FunctionEmitter<'a> {
         for (arg, mode) in args.iter().zip(modes) {
             let lend = match (mode, arg) {
                 (ParamMode::Value, _) => {
-                    let ty = llvm_type(self.operand_type(*arg));
+                    let ty = llvm_type(&self.operand_type(*arg));
                     let value = self.operand(*arg);
                     call_args.push(format!("{ty} {value}"));
                     continue;
@@ -421,9 +444,9 @@ impl<'a> FunctionEmitter<'a> {
                 call_args.push(format!("ptr {}", self.slot(x)));
             } else {
                 let ty = self.ty(x);
-                let temp = self.temp_array(ty);
+                let temp = self.temp_array(&ty);
                 let from = self.slot(x);
-                self.memcpy(&temp, &from, ty);
+                self.memcpy(&temp, &from, &ty);
                 call_args.push(format!("ptr {temp}"));
             }
         }
@@ -434,54 +457,86 @@ impl<'a> FunctionEmitter<'a> {
         for (temp, dest) in copy_back {
             let ty = self.ty(dest);
             let to = self.slot(dest);
-            self.memcpy(&to, &temp, ty);
+            self.memcpy(&to, &temp, &ty);
         }
     }
 
-    fn array_assign(&mut self, dest: LocalId, value: &Rvalue) {
+    fn assign(&mut self, dest: LocalId, value: &Rvalue) {
         let ty = self.ty(dest);
-        let Type::Array(elem, len) = ty else {
-            unreachable!()
-        };
-        let elem_ty = llvm_type(elem.ty());
-        let array_ty = llvm_type(ty);
+        let llvm_ty = llvm_type(&ty);
 
         match value {
-            Rvalue::Use(Operand::Local(src)) => {
-                // An in/out parameter returned as itself shares its slot.
-                let (to, from) = (self.slot(dest), self.slot(*src));
-                if to != from {
-                    self.memcpy(&to, &from, ty);
-                }
+            Rvalue::Use(operand) => {
+                let slot = self.slot(dest);
+                self.store_at(&slot, *operand, &ty);
+            }
+
+            Rvalue::Binary(op, lhs, rhs) => {
+                let value = self.binary(*op, *lhs, *rhs);
+                let slot = self.slot(dest);
+                self.line(format!("store {llvm_ty} {value}, ptr {slot}"));
+            }
+
+            Rvalue::Read(local, path) => {
+                let (from, part_ty) = self.place_ptr(*local, path);
+                let slot = self.slot(dest);
+                self.copy_at(&slot, &from, &part_ty);
             }
 
             Rvalue::Array(elems) => {
+                let Type::Array(elem_ty, _) = &ty else { unreachable!() };
+
                 for (i, elem) in elems.iter().enumerate() {
-                    let value = self.operand(*elem);
                     let ptr = self.register();
                     let slot = self.slot(dest);
-                    self.line(format!(
-                        "{ptr} = getelementptr {array_ty}, ptr {slot}, i64 0, i64 {i}"
-                    ));
-                    self.line(format!("store {elem_ty} {value}, ptr {ptr}"));
+                    self.line(format!("{ptr} = getelementptr {llvm_ty}, ptr {slot}, i64 0, i64 {i}"));
+                    self.store_at(&ptr, *elem, elem_ty);
+                }
+            }
+
+            Rvalue::Struct(fields) => {
+                let Type::Struct(id, _) = &ty else { unreachable!() };
+                let def = &self.program.structs[id.0];
+
+                for (i, (field, def_field)) in fields.iter().zip(&def.fields).enumerate() {
+                    let ptr = self.register();
+                    let slot = self.slot(dest);
+                    self.line(format!("{ptr} = getelementptr {llvm_ty}, ptr {slot}, i32 0, i32 {i}"));
+                    self.store_at(&ptr, *field, &def_field.ty);
                 }
             }
 
             // A loop storing `value` into each element.
             Rvalue::Repeat(value, len) if *len > 0 => {
-                let value = self.operand(*value);
+                let Type::Array(elem_ty, _) = &ty else { unreachable!() };
+
                 let before = self.label.clone();
                 let head = self.fresh_label("fill");
                 let after = self.fresh_label("filled");
                 let (i, ptr, next, done) =
                     (self.register(), self.register(), self.register(), self.register());
 
+                // Load a scalar value once, before the loop.
+                let value = match value {
+                    Operand::Local(id) if self.ty(*id).is_scalar() => {
+                        let register = self.operand(*value);
+                        Err(register)
+                    }
+                    _ => Ok(*value),
+                };
+                let before = if value.is_err() { self.label.clone() } else { before };
+
                 self.line(format!("br label %{head}"));
                 self.start_block(head.clone());
                 self.line(format!("{i} = phi i64 [ 0, %{before} ], [ {next}, %{head} ]"));
                 let slot = self.slot(dest);
-                self.line(format!("{ptr} = getelementptr {array_ty}, ptr {slot}, i64 0, i64 {i}"));
-                self.line(format!("store {elem_ty} {value}, ptr {ptr}"));
+                self.line(format!("{ptr} = getelementptr {llvm_ty}, ptr {slot}, i64 0, i64 {i}"));
+                match value {
+                    Ok(operand) => self.store_at(&ptr, operand, elem_ty),
+                    Err(register) => {
+                        self.line(format!("store {} {register}, ptr {ptr}", llvm_type(elem_ty)))
+                    }
+                }
                 self.line(format!("{next} = add i64 {i}, 1"));
                 self.line(format!("{done} = icmp eq i64 {next}, {len}"));
                 self.line(format!("br i1 {done}, label %{after}, label %{head}"));
@@ -489,13 +544,11 @@ impl<'a> FunctionEmitter<'a> {
             }
 
             Rvalue::Repeat(..) => {}
-
-            _ => unreachable!("invalid array assignment {value} of length {len}"),
         }
     }
 
     fn binary(&mut self, op: BinOp, lhs: Operand, rhs: Operand) -> String {
-        let ty = llvm_type(self.operand_type(lhs));
+        let ty = llvm_type(&self.operand_type(lhs));
         let lhs = self.operand(lhs);
         let rhs = self.operand(rhs);
         let register = self.register();
@@ -650,6 +703,34 @@ mod tests {
         );
 
         assert_eq!(copies(&source, &["set", "main"]), [0, 0]);
+    }
+
+    #[test]
+    fn nested_struct_update_copies_nothing() {
+        let source = "
+            struct Node { value: i32, edges: [i32; 100] }
+            struct Graph { nodes: [Node; 100] }
+            fn bump(g: Graph, i: i32): Graph {
+              g.nodes[i].value = g.nodes[i].value + 1
+              return g
+            }
+            fn main(): i32 {
+              g: Graph
+              i: i32
+              g = Graph(nodes: [Node(value: 0, edges: [0; 100]); 100])
+              i = 0
+              while i < 100 {
+                g = bump(g, i)
+                i = i + 1
+              }
+              return g.nodes[99].value - 1
+            }";
+
+        // The updates copy nothing. The 3 copies in `main` all come from
+        // building `g`: each nested literal is built in a temporary and then
+        // copied into its parent (building literals in place would remove
+        // them).
+        assert_eq!(copies(source, &["bump", "main"]), [0, 3]);
     }
 
     #[test]

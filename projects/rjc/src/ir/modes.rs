@@ -71,7 +71,7 @@ pub fn param_modes(function: &Function) -> Vec<ParamMode> {
                     };
                     record_slot_write(*dest, source);
                 }
-                Stmt::SetIndex { array, .. } => written[array.0] = true,
+                Stmt::SetPlace { local, .. } => written[local.0] = true,
                 Stmt::Call { dests, .. } => {
                     for dest in dests {
                         written[dest.0] = true;
@@ -88,7 +88,7 @@ pub fn param_modes(function: &Function) -> Vec<ParamMode> {
         .params
         .iter()
         .map(|param| {
-            if !matches!(function.local(*param).ty, Type::Array(..)) {
+            if !function.local(*param).ty.is_aggregate() {
                 return ParamMode::Value;
             }
 

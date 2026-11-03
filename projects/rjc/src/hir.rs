@@ -12,7 +12,10 @@
 // Spans are kept for diagnostics from later passes.
 #![allow(dead_code)]
 
-pub use crate::syntax::ast::{BinOp, Scalar, Type};
+pub use crate::{
+    syntax::ast::BinOp,
+    types::{StructDef, StructId, Type},
+};
 
 use crate::diagnostic::Span;
 
@@ -24,6 +27,7 @@ pub struct LocalId(pub usize);
 
 #[derive(Debug)]
 pub struct Program {
+    pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
     pub main: FuncId,
 }
@@ -92,12 +96,18 @@ pub enum StmtKind {
     Return(Vec<Value>),
 }
 
+/// A variable, or a part of one reached through fields and indexes.
 #[derive(Debug)]
-pub enum Place {
-    /// The whole variable.
-    Local(LocalId),
-    /// One element of an array variable.
-    Index(LocalId, Expr),
+pub struct Place {
+    pub local: LocalId,
+    pub path: Vec<PlaceElem>,
+}
+
+#[derive(Debug)]
+pub enum PlaceElem {
+    Index(Expr),
+    /// Field number, in declaration order.
+    Field(usize),
 }
 
 /// One entry of a value list.
@@ -134,6 +144,13 @@ pub enum ExprKind {
         base: Box<Expr>,
         index: Box<Expr>,
     },
+    /// Field number, in declaration order.
+    Field {
+        base: Box<Expr>,
+        field: usize,
+    },
+    /// Field values in declaration order.
+    StructLit(StructId, Vec<Expr>),
 }
 
 #[derive(Debug)]

@@ -13,7 +13,7 @@ ret_type = {
 }
 
 keyword = @{
-  ("fn" | "if" | "else" | "while" | "return" | "true" | "false")
+  ("fn" | "struct" | "if" | "else" | "while" | "return" | "true" | "false")
   ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -52,7 +52,15 @@ assign = {
 }
 
 place = {
-  ident ~ ("[" ~ expr_elm ~ "]")?
+  ident ~ (index_suffix | field_suffix)*
+}
+
+index_suffix = {
+  "[" ~ expr_elm ~ "]"
+}
+
+field_suffix = {
+  "." ~ ident
 }
 
 expr_list = {
@@ -74,16 +82,17 @@ pred_1 = {
 }
 
 pred_2 = {
-  index
+  postfix
   | pred_max
 }
 
-index = {
-  pred_max ~ ("[" ~ expr_elm ~ "]")+
+postfix = {
+  pred_max ~ (index_suffix | field_suffix)+
 }
 
 pred_max = {
-  func_call
+  struct_lit
+  | func_call
   | ident
   | literal
   | array_repeat
@@ -133,6 +142,15 @@ int = @{
 
 bool = @{ ("true" | "false") ~ !(ASCII_ALPHANUMERIC | "_") }
 
+// `Point(x: 1, y: 2)`. Named fields tell it apart from a call.
+struct_lit = {
+  ident ~ "(" ~ field_init ~ ("," ~ field_init)* ~ ")"
+}
+
+field_init = {
+  ident ~ ":" ~ expr_elm
+}
+
 func_call = {
   ident ~ "(" ~ expr_list ~ ")"
 }
@@ -144,17 +162,27 @@ var_decl = {
 var_type = {
   scalar_type
   | array_type
+  | named_type
 }
 
-scalar_type = {
-  "i32"
-  | "bool"
+scalar_type = @{
+  ("i32" | "bool") ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
 array_type = {
-  "[" ~ scalar_type ~ ";" ~ array_len ~ "]"
+  "[" ~ var_type ~ ";" ~ array_len ~ "]"
+}
+
+named_type = {
+  ident
+}
+
+struct_def = {
+  "struct" ~ ident ~ "{"
+  ~ (var_decl ~ ("," ~ var_decl)* ~ ","?)?
+  ~ "}"
 }
 
 module = {
-  SOI ~ func* ~ EOI
+  SOI ~ (struct_def | func)* ~ EOI
 }

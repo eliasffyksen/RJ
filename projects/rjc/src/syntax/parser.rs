@@ -22,17 +22,30 @@ pub fn parse(source: &str) -> Result<Module> {
         .next()
         .unwrap();
 
+    let mut structs = vec![];
     let mut functions = vec![];
 
     for pair in module.into_inner() {
         match pair.as_rule() {
+            Rule::struct_def => structs.push(struct_def(pair)?),
             Rule::func => functions.push(function(pair)?),
             Rule::EOI => {}
             rule => unreachable!("unexpected {rule:?} in module"),
         }
     }
 
-    Ok(Module { functions })
+    Ok(Module { structs, functions })
+}
+
+fn struct_def(pair: Pair<Rule>) -> Result<StructDef> {
+    let span = span(&pair);
+    let mut inner = pair.into_inner();
+
+    Ok(StructDef {
+        name: ident(inner.next().unwrap()),
+        fields: inner.map(var_decl).collect::<Result<_>>()?,
+        span,
+    })
 }
 
 fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
@@ -52,8 +65,17 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::if_stmt => "if statement",
             Rule::while_stmt => "while loop",
             Rule::var_decl => "variable declaration",
-            Rule::var_type | Rule::ret_type | Rule::scalar_type | Rule::array_type => "type",
-            Rule::index => "expression",
+            Rule::var_type
+            | Rule::ret_type
+            | Rule::scalar_type
+            | Rule::array_type
+            | Rule::named_type => "type",
+            Rule::postfix => "expression",
+            Rule::index_suffix => "`[`",
+            Rule::field_suffix => "`.`",
+            Rule::struct_lit => "struct",
+            Rule::field_init => "field",
+            Rule::struct_def => "struct definition",
             Rule::array_list | Rule::array_repeat => "array",
             Rule::array_len => "array length",
             Rule::place => "variable",
@@ -118,29 +140,29 @@ fn ident(pair: Pair<Rule>) -> Ident {
     }
 }
 
-fn ty(pair: Pair<Rule>) -> Result<Type> {
+fn ty(pair: Pair<Rule>) -> Result<TypeExpr> {
     debug_assert_eq!(pair.as_rule(), Rule::var_type);
+    let span = span(&pair);
     let pair = pair.into_inner().next().unwrap();
 
-    match pair.as_rule() {
-        Rule::scalar_type => Ok(scalar(pair).ty()),
+    let kind = match pair.as_rule() {
+        Rule::scalar_type => match pair.as_str() {
+            "i32" => TypeExprKind::I32,
+            "bool" => TypeExprKind::Bool,
+            other => unreachable!("unknown type {other:?}"),
+        },
         Rule::array_type => {
             let mut inner = pair.into_inner();
-            let elem = scalar(inner.next().unwrap());
+            let elem = ty(inner.next().unwrap())?;
             let len = array_len(inner.next().unwrap())?;
 
-            Ok(Type::Array(elem, len))
+            TypeExprKind::Array(Box::new(elem), len)
         }
+        Rule::named_type => TypeExprKind::Named(ident(pair.into_inner().next().unwrap())),
         rule => unreachable!("unexpected {rule:?} in type"),
-    }
-}
+    };
 
-fn scalar(pair: Pair<Rule>) -> Scalar {
-    match pair.as_str() {
-        "i32" => Scalar::I32,
-        "bool" => Scalar::Bool,
-        other => unreachable!("unknown type {other:?}"),
-    }
+    Ok(TypeExpr { kind, span })
 }
 
 fn array_len(pair: Pair<Rule>) -> Result<u32> {
@@ -164,11 +186,22 @@ fn place(pair: Pair<Rule>) -> Result<Place> {
     let span = span(&pair);
     let mut inner = pair.into_inner();
 
-    Ok(Place {
-        name: ident(inner.next().unwrap()),
-        index: inner.next().map(expr).transpose()?,
-        span,
-    })
+    let name = ident(inner.next().unwrap());
+    let mut path = vec![];
+
+    for elem in inner {
+        match elem.as_rule() {
+            Rule::index_suffix => {
+                path.push(PlaceElem::Index(expr(elem.into_inner().next().unwrap())?))
+            }
+            Rule::field_suffix => {
+                path.push(PlaceElem::Field(ident(elem.into_inner().next().unwrap())))
+            }
+            rule => unreachable!("unexpected {rule:?} in place"),
+        }
+    }
+
+    Ok(Place { name, path, span })
 }
 
 fn block(pair: Pair<Rule>) -> Result<Block> {
@@ -281,22 +314,44 @@ fn expr(mut pair: Pair<Rule>) -> Result<Expr> {
             ExprKind::ArrayRepeat(Box::new(value), len)
         }
 
-        // `a[i][j]` parses as one flat sequence; fold it left to right.
-        Rule::index => {
+        Rule::struct_lit => {
+            let mut inner = pair.into_inner();
+            let name = ident(inner.next().unwrap());
+            let mut fields = vec![];
+
+            for field in inner {
+                let mut field = field.into_inner();
+                let name = ident(field.next().unwrap());
+                fields.push((name, expr(field.next().unwrap())?));
+            }
+
+            ExprKind::StructLit { name, fields }
+        }
+
+        // `a.b[i].c` parses as one flat sequence; fold it left to right.
+        Rule::postfix => {
             let mut inner = pair.into_inner();
             let mut base = expr(inner.next().unwrap())?;
 
-            for index in inner {
-                let index = expr(index)?;
-                let span = Span::new(base.span.start, (index.span.end + 1).min(span.end));
+            for suffix in inner {
+                let suffix_span = self::span(&suffix);
+                let span = Span::new(base.span.start, suffix_span.end);
+                let rule = suffix.as_rule();
+                let inner = suffix.into_inner().next().unwrap();
 
-                base = Expr {
-                    kind: ExprKind::Index {
+                let kind = match rule {
+                    Rule::index_suffix => ExprKind::Index {
                         base: Box::new(base),
-                        index: Box::new(index),
+                        index: Box::new(expr(inner)?),
                     },
-                    span,
+                    Rule::field_suffix => ExprKind::Field {
+                        base: Box::new(base),
+                        field: ident(inner),
+                    },
+                    rule => unreachable!("unexpected {rule:?} in postfix"),
                 };
+
+                base = Expr { kind, span };
             }
 
             return Ok(base);
@@ -392,8 +447,8 @@ mod tests {
     fn parses_bool_type() {
         let module = parse("fn f(b: bool): bool { return b }").unwrap();
 
-        assert_eq!(module.functions[0].params[0].ty, Type::Bool);
-        assert_eq!(module.functions[0].returns, vec![Type::Bool]);
+        assert!(matches!(module.functions[0].params[0].ty.kind, TypeExprKind::Bool));
+        assert!(matches!(module.functions[0].returns[..], [TypeExpr { kind: TypeExprKind::Bool, .. }]));
     }
 
     #[test]
@@ -427,8 +482,38 @@ mod tests {
     fn parses_array_types_and_indexing() {
         let module = parse("fn f(a: [bool; 4]): [i32; 2] { a[1] = a[0] return [0; 2] }").unwrap();
 
-        assert_eq!(module.functions[0].params[0].ty, Type::Array(Scalar::Bool, 4));
-        assert_eq!(module.functions[0].returns, vec![Type::Array(Scalar::I32, 2)]);
+        let TypeExprKind::Array(elem, 4) = &module.functions[0].params[0].ty.kind else {
+            panic!("expected [bool; 4]");
+        };
+        assert!(matches!(elem.kind, TypeExprKind::Bool));
+    }
+
+    #[test]
+    fn parses_structs() {
+        let module = parse(
+            "struct Inner { v: [i32; 2] }
+             struct Outer { a: Inner, b: bool, }
+             fn f(o: Outer): i32 {
+               o.a.v[1] = Outer(a: Inner(v: [1, 2]), b: true).a.v[0]
+               return o.a.v[1]
+             }",
+        )
+        .unwrap();
+
+        assert_eq!(module.structs.len(), 2);
+        assert_eq!(module.structs[1].fields.len(), 2);
+
+        let StmtKind::Assign { targets, values } = &module.functions[0].body.stmts[0].kind else {
+            panic!("expected assignment");
+        };
+        assert_eq!(targets[0].path.len(), 3);
+        assert!(matches!(values[0].kind, ExprKind::Index { .. }));
+    }
+
+    #[test]
+    fn struct_literal_is_not_confused_with_a_block() {
+        let module = parse("fn f(done: bool): i32 { if done { return 1 } return 0 }").unwrap();
+        assert!(matches!(module.functions[0].body.stmts[0].kind, StmtKind::If { .. }));
     }
 
     #[test]

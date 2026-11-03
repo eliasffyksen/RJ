@@ -29,11 +29,16 @@ fn min_max(a: [i32; 4]): i32, i32 {
 }
 ```
 
-- Types: `i32`, `bool` and fixed-size arrays `[i32; N]` / `[bool; N]`.
-- Everything is a value: assigning, passing or returning an array copies it,
-  and a function changing its parameter never affects the caller.
+- Types: `i32`, `bool`, fixed-size arrays `[T; N]` of any type, and structs:
+  ```
+  struct Node { value: i32, edges: [i32; 4] }
+  n = Node(value: 1, edges: [0; 4])   // named fields, in any order
+  ```
+- Everything is a value: assigning, passing or returning an array or struct
+  copies it, and a function changing its parameter never affects the caller.
 - Inside a function, variables are mutable: assignment (including parallel
-  `a, b = b, a`), element assignment `a[i] = v`, `if`/`else` and `while`.
+  `a, b = b, a`), assignment to parts such as `g.nodes[i].value = v`,
+  `if`/`else` and `while`.
 - Variables must be assigned before they are read; array indexes are bounds
   checked (at compile time for constants, otherwise at run time).
 

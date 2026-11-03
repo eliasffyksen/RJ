@@ -14,14 +14,22 @@ use crate::diagnostic::Span;
 
 #[derive(Debug)]
 pub struct Module {
+    pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug)]
+pub struct StructDef {
+    pub name: Ident,
+    pub fields: Vec<VarDecl>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct Function {
     pub name: Ident,
     pub params: Vec<VarDecl>,
-    pub returns: Vec<Type>,
+    pub returns: Vec<TypeExpr>,
     pub body: Block,
     pub span: Span,
 }
@@ -29,7 +37,7 @@ pub struct Function {
 #[derive(Debug)]
 pub struct VarDecl {
     pub name: Ident,
-    pub ty: Type,
+    pub ty: TypeExpr,
     pub span: Span,
 }
 
@@ -91,14 +99,30 @@ pub enum ExprKind {
         base: Box<Expr>,
         index: Box<Expr>,
     },
+    /// `base.field`
+    Field {
+        base: Box<Expr>,
+        field: Ident,
+    },
+    /// `Name(field: value, ...)`
+    StructLit {
+        name: Ident,
+        fields: Vec<(Ident, Expr)>,
+    },
 }
 
-/// An assignment target: `x` or `x[index]`.
+/// An assignment target: a variable, or a part of one such as `x.items[i]`.
 #[derive(Debug)]
 pub struct Place {
     pub name: Ident,
-    pub index: Option<Expr>,
+    pub path: Vec<PlaceElem>,
     pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum PlaceElem {
+    Index(Expr),
+    Field(Ident),
 }
 
 #[derive(Debug)]
@@ -140,46 +164,31 @@ pub struct Ident {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Type {
+/// A type as written in the source. The checker resolves it to a
+/// [`crate::types::Type`].
+#[derive(Debug, Clone)]
+pub struct TypeExpr {
+    pub kind: TypeExprKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeExprKind {
     I32,
     Bool,
     /// `[elem; len]`
-    Array(Scalar, u32),
+    Array(Box<TypeExpr>, u32),
+    /// A struct name.
+    Named(Ident),
 }
 
-/// Types that can be array elements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scalar {
-    I32,
-    Bool,
-}
-
-impl Scalar {
-    pub fn ty(self) -> Type {
-        match self {
-            Scalar::I32 => Type::I32,
-            Scalar::Bool => Type::Bool,
-        }
-    }
-}
-
-impl Type {
-    pub fn scalar(self) -> Option<Scalar> {
-        match self {
-            Type::I32 => Some(Scalar::I32),
-            Type::Bool => Some(Scalar::Bool),
-            Type::Array(..) => None,
-        }
-    }
-}
-
-impl fmt::Display for Type {
+impl fmt::Display for TypeExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Type::I32 => f.write_str("i32"),
-            Type::Bool => f.write_str("bool"),
-            Type::Array(elem, len) => write!(f, "[{}; {len}]", elem.ty()),
+        match &self.kind {
+            TypeExprKind::I32 => f.write_str("i32"),
+            TypeExprKind::Bool => f.write_str("bool"),
+            TypeExprKind::Array(elem, len) => write!(f, "[{elem}; {len}]"),
+            TypeExprKind::Named(name) => f.write_str(&name.name),
         }
     }
 }

@@ -10,6 +10,7 @@ pub fn lower(program: &hir::Program) -> Program {
             .iter()
             .map(|function| lower_function(program, function))
             .collect(),
+        structs: program.structs.clone(),
         main: program.main,
     }
 }
@@ -21,7 +22,7 @@ fn lower_function(program: &hir::Program, function: &hir::Function) -> Function 
         .iter()
         .enumerate()
         .map(|(i, local)| Local {
-            ty: local.ty,
+            ty: local.ty.clone(),
             kind: if function.params.contains(&LocalId(i)) {
                 LocalKind::Param(local.name.clone())
             } else {
@@ -41,7 +42,7 @@ fn lower_function(program: &hir::Program, function: &hir::Function) -> Function 
     builder.returns = function
         .returns
         .iter()
-        .map(|ty| builder.new_local(*ty, LocalKind::Return))
+        .map(|ty| builder.new_local(ty.clone(), LocalKind::Return))
         .collect();
 
     let entry = builder.new_block();
@@ -163,24 +164,21 @@ impl Builder<'_> {
     fn assign(&mut self, targets: &[hir::Place], values: &[hir::Value]) {
         let whole_locals = targets
             .iter()
-            .map(|target| match target {
-                hir::Place::Local(id) => Some(*id),
-                hir::Place::Index(..) => None,
-            })
+            .map(|target| target.path.is_empty().then_some(target.local))
             .collect::<Option<Vec<_>>>();
 
         match (targets, values, whole_locals) {
-            ([hir::Place::Local(target)], [hir::Value::Single(expr)], _) => {
-                self.expr_into(expr, *target)
+            ([target], [hir::Value::Single(expr)], _) if target.path.is_empty() => {
+                self.expr_into(expr, target.local)
             }
 
-            ([hir::Place::Index(array, index)], [hir::Value::Single(expr)], _) => {
+            ([target], [hir::Value::Single(expr)], _) => {
                 let value = self.operand(expr);
-                let index = self.operand(index);
+                let path = self.path(&target.path, false);
 
-                self.push(Stmt::SetIndex {
-                    array: *array,
-                    index,
+                self.push(Stmt::SetPlace {
+                    local: target.local,
+                    path,
                     value,
                 });
             }
@@ -209,31 +207,41 @@ impl Builder<'_> {
             _ => {
                 let temps = self.values_into_temps(values);
 
-                let indices = targets
+                let paths = targets
                     .iter()
-                    .map(|target| match target {
-                        hir::Place::Index(_, index) => Some(self.stable_operand(index)),
-                        hir::Place::Local(_) => None,
-                    })
+                    .map(|target| self.path(&target.path, true))
                     .collect::<Vec<_>>();
 
-                for ((target, temp), index) in targets.iter().zip(temps).zip(indices) {
+                for ((target, temp), path) in targets.iter().zip(temps).zip(paths) {
                     let value = Operand::Local(temp);
 
-                    match target {
-                        hir::Place::Local(dest) => self.push(Stmt::Assign {
-                            dest: *dest,
+                    if path.is_empty() {
+                        self.push(Stmt::Assign {
+                            dest: target.local,
                             value: Rvalue::Use(value),
-                        }),
-                        hir::Place::Index(array, _) => self.push(Stmt::SetIndex {
-                            array: *array,
-                            index: index.unwrap(),
+                        });
+                    } else {
+                        self.push(Stmt::SetPlace {
+                            local: target.local,
+                            path,
                             value,
-                        }),
+                        });
                     }
                 }
             }
         }
+    }
+
+    /// Lowers a place path, evaluating its indexes. With `stable`, indexes
+    /// keep their value even if locals are written before the path is used.
+    fn path(&mut self, path: &[hir::PlaceElem], stable: bool) -> Vec<Elem> {
+        path.iter()
+            .map(|elem| match elem {
+                hir::PlaceElem::Field(field) => Elem::Field(*field),
+                hir::PlaceElem::Index(index) if stable => Elem::Index(self.stable_operand(index)),
+                hir::PlaceElem::Index(index) => Elem::Index(self.operand(index)),
+            })
+            .collect()
     }
 
     /// Like [`Self::operand`], but copies locals into a temporary so the
@@ -241,7 +249,7 @@ impl Builder<'_> {
     fn stable_operand(&mut self, expr: &hir::Expr) -> Operand {
         match self.operand(expr) {
             Operand::Local(id) => {
-                let temp = self.new_temp(expr.ty);
+                let temp = self.new_temp(expr.ty.clone());
                 self.push(Stmt::Assign {
                     dest: temp,
                     value: Rvalue::Use(Operand::Local(id)),
@@ -377,7 +385,7 @@ impl Builder<'_> {
         for value in values {
             match value {
                 hir::Value::Single(expr) => {
-                    let temp = self.new_temp(expr.ty);
+                    let temp = self.new_temp(expr.ty.clone());
                     self.expr_into(expr, temp);
                     temps.push(temp);
                 }
@@ -406,8 +414,10 @@ impl Builder<'_> {
             | hir::ExprKind::Binary { .. }
             | hir::ExprKind::ArrayList(_)
             | hir::ExprKind::ArrayRepeat(..)
-            | hir::ExprKind::Index { .. } => {
-                let temp = self.new_temp(expr.ty);
+            | hir::ExprKind::Index { .. }
+            | hir::ExprKind::Field { .. }
+            | hir::ExprKind::StructLit(..) => {
+                let temp = self.new_temp(expr.ty.clone());
                 self.expr_into(expr, temp);
                 Operand::Local(temp)
             }
@@ -447,16 +457,46 @@ impl Builder<'_> {
                 });
             }
 
-            hir::ExprKind::Index { base, index } => {
-                // Arrays have no constant operands, so this is always a local.
-                let Operand::Local(array) = self.operand(base) else {
-                    unreachable!("array operand is not a local");
-                };
-                let index = self.operand(index);
+            hir::ExprKind::StructLit(_, fields) => {
+                let fields = fields.iter().map(|field| self.operand(field)).collect();
 
                 self.push(Stmt::Assign {
                     dest,
-                    value: Rvalue::Index(array, index),
+                    value: Rvalue::Struct(fields),
+                });
+            }
+
+            // `a.items[i].x`: one read along a path from the innermost base.
+            hir::ExprKind::Index { .. } | hir::ExprKind::Field { .. } => {
+                // Walk down to the base, collecting the steps outermost first.
+                let mut steps = vec![];
+                let mut base = expr;
+                while let hir::ExprKind::Index { base: inner, .. }
+                | hir::ExprKind::Field { base: inner, .. } = &base.kind
+                {
+                    steps.push(base);
+                    base = inner;
+                }
+
+                // Arrays and structs have no constant operands, so the base
+                // is always a local.
+                let Operand::Local(local) = self.operand(base) else {
+                    unreachable!("aggregate operand is not a local");
+                };
+
+                let path = steps
+                    .into_iter()
+                    .rev()
+                    .map(|step| match &step.kind {
+                        hir::ExprKind::Index { index, .. } => Elem::Index(self.operand(index)),
+                        hir::ExprKind::Field { field, .. } => Elem::Field(*field),
+                        _ => unreachable!(),
+                    })
+                    .collect();
+
+                self.push(Stmt::Assign {
+                    dest,
+                    value: Rvalue::Read(local, path),
                 });
             }
 
@@ -492,5 +532,7 @@ fn expr_reads_any(expr: &hir::Expr, locals: &[LocalId]) -> bool {
         hir::ExprKind::Index { base, index } => {
             expr_reads_any(base, locals) || expr_reads_any(index, locals)
         }
+        hir::ExprKind::Field { base, .. } => expr_reads_any(base, locals),
+        hir::ExprKind::StructLit(_, fields) => fields.iter().any(|f| expr_reads_any(f, locals)),
     }
 }
