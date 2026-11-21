@@ -1,9 +1,13 @@
 fn fib(n: i32): i32 {
-  if n < 3 {
-    return 1
+  a: i32
+  b: i32
+  a, b = 1, 1
+
+  for i in 2..n {
+    a, b = b, a + b
   }
 
-  return fib(n - 1) + fib(n - 2)
+  return b
 }
 
 fn main(): i32 {

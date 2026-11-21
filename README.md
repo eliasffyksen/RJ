@@ -54,7 +54,8 @@ fn min_max(a: [i32; 4]): i32, i32 {
   `a, b = b, a`), assignment to parts such as `g.nodes[i].value = v`,
   `if`/`else` and `for`.
 - Every program terminates: loops are bounded `for` loops over ranges and
-  arrays, and there is no `while`. The element name stands for the
+  arrays, there is no `while`, and functions can't call themselves, directly
+  or through other functions. The element name stands for the
   element itself, so changing it changes the array in place; `else` runs
   when the loop ends without `break`:
   ```
@@ -96,11 +97,15 @@ cargo run -- <FILE> --emit-ast-graph
 Here is an example on the following code:
 ```
 fn fib(n: i32): i32 {
-  if n < 3 {
-    return 1
+  a: i32
+  b: i32
+  a, b = 1, 1
+
+  for i in 2..n {
+    a, b = b, a + b
   }
 
-  return fib(n - 1) + fib(n - 2)
+  return b
 }
 ```
 

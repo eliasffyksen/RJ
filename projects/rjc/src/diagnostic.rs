@@ -58,6 +58,7 @@ pub enum Code {
     // Program
     Main,
     InfiniteType,
+    Recursion,
     // Examples
     ExampleFailed,
     ExampleTrapped,
@@ -100,6 +101,7 @@ impl Code {
         Code::NoWhile,
         Code::Main,
         Code::InfiniteType,
+        Code::Recursion,
         Code::ExampleFailed,
         Code::ExampleTrapped,
         Code::Copy,
@@ -140,6 +142,7 @@ impl Code {
             Code::NoWhile => "E0307",
             Code::Main => "E0400",
             Code::InfiniteType => "E0401",
+            Code::Recursion => "E0402",
             Code::ExampleFailed => "E0500",
             Code::ExampleTrapped => "E0501",
             Code::Copy => "N0001",
@@ -185,6 +188,7 @@ impl Code {
             Code::NoWhile => "no `while` loops",
             Code::Main => "invalid `main`",
             Code::InfiniteType => "type contains itself",
+            Code::Recursion => "recursion",
             Code::ExampleFailed => "example failed",
             Code::ExampleTrapped => "example trapped",
             Code::Copy => "copy kept",
@@ -300,6 +304,12 @@ impl Code {
                  the loop runs if `max` was reached without `break`."
             }
             Code::Main => "Programs need a `fn main(): i32`; its result is the exit code.",
+            Code::Recursion => {
+                "Every RJ program terminates, so functions can't call themselves, \
+                 directly or through other functions. Use a `for` loop instead; to walk \
+                 a tree or graph, keep the nodes in an array, refer to them by index, \
+                 and use an array as an explicit work stack."
+            }
             Code::ExampleFailed => {
                 "An `example` didn't hold when the compiler ran it. For a comparison \
                  `example f(x) == y`, the help shows both sides' values; either the \

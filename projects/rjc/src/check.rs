@@ -201,6 +201,12 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
     }
 
     let mut functions = functions.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+
+    let recursion = recursion_errors(&functions);
+    if !recursion.is_empty() {
+        return Err(recursion);
+    }
+
     for function in &mut functions {
         types.erase_function(function);
     }
@@ -1944,6 +1950,207 @@ impl FunctionChecker<'_> {
     }
 }
 
+/// One error for each group of functions that call each other, directly
+/// or through other functions, at a call that starts the cycle.
+fn recursion_errors(functions: &[hir::Function]) -> Vec<Error> {
+    let calls = functions
+        .iter()
+        .map(|function| {
+            let mut calls = vec![];
+            calls_in_block(&function.body, &mut calls);
+            calls
+        })
+        .collect::<Vec<_>>();
+
+    let mut errors = vec![];
+    let mut reported = vec![false; functions.len()];
+
+    for start in 0..functions.len() {
+        if reported[start] {
+            continue;
+        }
+
+        // The shortest path of calls from `start` back to itself, if any.
+        let Some(cycle) = shortest_cycle(&calls, start) else {
+            continue;
+        };
+
+        // Everything that reaches `start` and is reached from it is part of
+        // the same group; report the group once.
+        for (i, done) in reported.iter_mut().enumerate() {
+            if reaches(&calls, start, i) && reaches(&calls, i, start) {
+                *done = true;
+            }
+        }
+
+        let names = cycle.iter().map(|(func, _)| functions[*func].name.as_str()).collect::<Vec<_>>();
+        let span = cycle[0].1;
+
+        let message = if names.len() == 1 {
+            format!("`{}` calls itself", names[0])
+        } else {
+            let path = names.iter().chain([&names[0]]).copied().collect::<Vec<_>>().join(" → ");
+            let all = names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>();
+            format!("{} call each other ({path})", list(&all))
+        };
+
+        let mut error = Error::new(Code::Recursion, message, span);
+        error.help("functions can't recurse, so that every program terminates; use a `for` loop, or an array as an explicit stack");
+        errors.push(error);
+    }
+
+    errors
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The calls in a cycle from `start` back to itself: each function in the
+/// cycle with the span of its call to the next one.
+fn shortest_cycle(calls: &[Vec<(FuncId, Span)>], start: usize) -> Option<Vec<(usize, Span)>> {
+    // Breadth-first search, remembering how each function was reached.
+    let mut came_from: Vec<Option<(usize, Span)>> = vec![None; calls.len()];
+    let mut queue = std::collections::VecDeque::from([start]);
+    let mut seen = vec![false; calls.len()];
+
+    while let Some(func) = queue.pop_front() {
+        for &(callee, span) in &calls[func] {
+            if callee.0 == start {
+                // Walk back from `func` to `start`.
+                let mut cycle = vec![(func, span)];
+                let mut at = func;
+                while at != start {
+                    let (from, span) = came_from[at].unwrap();
+                    cycle.push((from, span));
+                    at = from;
+                }
+                cycle.reverse();
+                return Some(cycle);
+            }
+
+            if !seen[callee.0] {
+                seen[callee.0] = true;
+                came_from[callee.0] = Some((func, span));
+                queue.push_back(callee.0);
+            }
+        }
+    }
+
+    None
+}
+
+fn reaches(calls: &[Vec<(FuncId, Span)>], from: usize, to: usize) -> bool {
+    let mut seen = vec![false; calls.len()];
+    let mut stack = vec![from];
+
+    while let Some(func) = stack.pop() {
+        if func == to {
+            return true;
+        }
+        for &(callee, _) in &calls[func] {
+            if !seen[callee.0] {
+                seen[callee.0] = true;
+                stack.push(callee.0);
+            }
+        }
+    }
+
+    false
+}
+
+fn calls_in_block(block: &hir::Block, out: &mut Vec<(FuncId, Span)>) {
+    for stmt in &block.stmts {
+        match &stmt.kind {
+            hir::StmtKind::Assign { targets, values } => {
+                for target in targets {
+                    calls_in_place(target, out);
+                }
+                values.iter().for_each(|v| calls_in_value(v, out));
+            }
+            hir::StmtKind::Call(call) => calls_in_call(call, out),
+            hir::StmtKind::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                calls_in_expr(cond, out);
+                calls_in_block(then_block, out);
+                calls_in_block(else_block, out);
+            }
+            hir::StmtKind::For {
+                prelude,
+                start,
+                end,
+                body,
+                else_block,
+                ..
+            } => {
+                prelude.iter().for_each(|(_, e)| calls_in_expr(e, out));
+                calls_in_expr(start, out);
+                calls_in_expr(end, out);
+                calls_in_block(body, out);
+                if let Some(else_block) = else_block {
+                    calls_in_block(else_block, out);
+                }
+            }
+            hir::StmtKind::Break | hir::StmtKind::Continue => {}
+            hir::StmtKind::Return(values) => values.iter().for_each(|v| calls_in_value(v, out)),
+        }
+    }
+}
+
+fn calls_in_place(place: &hir::Place, out: &mut Vec<(FuncId, Span)>) {
+    for elem in &place.path {
+        if let hir::PlaceElem::Index(index) = elem {
+            calls_in_expr(index, out);
+        }
+    }
+}
+
+fn calls_in_value(value: &hir::Value, out: &mut Vec<(FuncId, Span)>) {
+    match value {
+        hir::Value::Single(expr) => calls_in_expr(expr, out),
+        hir::Value::Multi(call) => calls_in_call(call, out),
+    }
+}
+
+fn calls_in_call(call: &hir::Call, out: &mut Vec<(FuncId, Span)>) {
+    out.push((call.func, call.span));
+
+    match &call.receiver {
+        Some(hir::Receiver::Place(place)) => calls_in_place(place, out),
+        Some(hir::Receiver::Value(expr)) => calls_in_expr(expr, out),
+        None => {}
+    }
+    call.args.iter().for_each(|v| calls_in_value(v, out));
+}
+
+fn calls_in_expr(expr: &hir::Expr, out: &mut Vec<(FuncId, Span)>) {
+    match &expr.kind {
+        hir::ExprKind::Int(_) | hir::ExprKind::Bool(_) | hir::ExprKind::Local(_) => {}
+        hir::ExprKind::Call(call) => calls_in_call(call, out),
+        hir::ExprKind::Binary { lhs, rhs, .. } => {
+            calls_in_expr(lhs, out);
+            calls_in_expr(rhs, out);
+        }
+        hir::ExprKind::ArrayList(elems) | hir::ExprKind::StructLit(_, elems) => {
+            elems.iter().for_each(|e| calls_in_expr(e, out))
+        }
+        hir::ExprKind::ArrayRepeat(value, _) => calls_in_expr(value, out),
+        hir::ExprKind::Index { base, index } => {
+            calls_in_expr(base, out);
+            calls_in_expr(index, out);
+        }
+        hir::ExprKind::Field { base, .. } | hir::ExprKind::Convert(base) => calls_in_expr(base, out),
+    }
+}
+
 /// A method receiver: a place if `expr` names a variable or a part of one,
 /// otherwise a plain value.
 fn into_receiver(expr: hir::Expr) -> hir::Receiver {
@@ -2522,6 +2729,50 @@ mod tests {
         let (code, help, _) = diagnostic("fn main(): i32 { while true { } return 0 }");
         assert_eq!(code, Code::NoWhile);
         assert!(help.unwrap().contains("for i in 0..max"));
+    }
+
+    #[test]
+    fn direct_recursion() {
+        let (message, at) = error(
+            "fn f(n: i32): i32 { if n < 1 { return 0 } return f(n - 1) }",
+        );
+        assert_eq!(message, "`f` calls itself");
+        assert_eq!(at, "f(n - 1)");
+    }
+
+    #[test]
+    fn mutual_recursion_is_reported_once() {
+        let errors = check_source(
+            "fn even(n: i32): bool { if n == 0 { return true } return odd(n - 1) }
+             fn odd(n: i32): bool { if n == 0 { return false } return even(n - 1) }
+             fn main(): i32 { if even(4) { return 0 } return 1 }",
+        )
+        .unwrap_err();
+
+        let messages = errors.iter().map(|e| (e.code, e.message.as_str())).collect::<Vec<_>>();
+        assert_eq!(
+            messages,
+            [(Code::Recursion, "`even` and `odd` call each other (even → odd → even)")]
+        );
+    }
+
+    #[test]
+    fn recursion_through_methods() {
+        let (message, _) = error(
+            "type T struct { n: i32 }
+             fn T.down() { if this.n > 0 { this.n = this.n - 1 this.down() } }",
+        );
+        assert_eq!(message, "`T.down` calls itself");
+    }
+
+    #[test]
+    fn calling_a_function_twice_is_not_recursion() {
+        check_source(
+            "fn inc(x: i32): i32 { return x + 1 }
+             fn twice(x: i32): i32 { return inc(inc(x)) }
+             fn main(): i32 { return twice(0) - 2 }",
+        )
+        .unwrap();
     }
 
     #[test]

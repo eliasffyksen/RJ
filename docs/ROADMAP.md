@@ -44,7 +44,11 @@ branch's test suite (`cargo test`, `make test`):
   diagnostics with help and expected/found types, `example`s run at compile
   time, `--copies` notes and `--fmt`.
 
-Not yet: totality (`while` and recursion are unrestricted), sum types,
+- Phase 2's total core: bounded `for` over ranges and arrays (elements
+  changed in place), `break`, `continue` and `for`/`else`; no `while`, no
+  recursion. Every accepted program terminates.
+
+Not yet: sum types,
 growable collections, strings, I/O, specs.
 
 ## Phases
@@ -66,7 +70,7 @@ Make the compiler a good partner before adding proof machinery.
 **Done when** an LLM can fix a type error, a failing example and an avoidable
 copy using only `--json` output.
 
-### Phase 2: Total core
+### Phase 2: Total core (done)
 
 Termination by construction, with no proofs needed.
 
