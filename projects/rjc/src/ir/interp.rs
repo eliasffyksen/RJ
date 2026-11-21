@@ -76,7 +76,7 @@ fn array_index(array: &[Value], index: &Value) -> Result<usize, Trap> {
 pub fn run(program: &Program) -> i32 {
     let mut machine = Machine::new(program, u64::MAX);
 
-    match machine.call(program.main, vec![]) {
+    match machine.call(program.main.expect("no main"), vec![]) {
         Ok(values) => match values[..] {
             [Value::Int(code)] => code,
             ref other => panic!("main returned {other:?}"),
@@ -361,7 +361,7 @@ mod tests {
              }",
         );
 
-        let main = program.function(program.main);
+        let main = program.function(program.main.unwrap());
         let x = main.params.len(); // first non-param local
         let calls = main
             .blocks
@@ -392,6 +392,6 @@ mod tests {
         );
 
         // entry, then, else
-        assert_eq!(program.function(program.main).blocks.len(), 3);
+        assert_eq!(program.function(program.main.unwrap()).blocks.len(), 3);
     }
 }

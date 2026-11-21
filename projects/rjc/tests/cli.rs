@@ -121,3 +121,16 @@ fn fmt_prints_and_writes_the_canonical_form() {
     assert!(ok);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), canonical);
 }
+
+#[test]
+fn library_without_main() {
+    let path = source_file("lib.rj", "fn double(x: i32): i32 { return x + x }\nexample double(2) == 4\n");
+
+    let (ok, stdout, _) = rjc(&["--json", path.to_str().unwrap()]);
+    assert!(ok, "a library checks and runs its examples");
+    assert_eq!(stdout.trim(), r#"{"diagnostics":[]}"#);
+
+    let (ok, _, stderr) = rjc(&["--emit-llvm", path.to_str().unwrap()]);
+    assert!(!ok, "but can't be built");
+    assert!(stderr.contains("error[E0400]"), "{stderr}");
+}

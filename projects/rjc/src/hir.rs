@@ -29,7 +29,9 @@ pub struct LocalId(pub usize);
 pub struct Program {
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
-    pub main: FuncId,
+    /// `None` for a library: it can be checked and its examples run, but
+    /// it can't be built into a program.
+    pub main: Option<FuncId>,
     pub examples: Vec<Example>,
 }
 

@@ -169,7 +169,7 @@ mod tests {
 
     fn main_of(source: &str) -> Function {
         let mut program = lower(&check::check(&syntax::parse(source).unwrap()).unwrap());
-        let main = program.main.0;
+        let main = program.main.unwrap().0;
         program.functions.swap_remove(main)
     }
 

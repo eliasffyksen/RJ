@@ -37,7 +37,7 @@ pub struct BlockId(pub usize);
 pub struct Program {
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
-    pub main: FuncId,
+    pub main: Option<FuncId>,
     /// Run by the compiler, never compiled to machine code.
     pub examples: Vec<Example>,
 }

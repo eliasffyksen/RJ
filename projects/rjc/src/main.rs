@@ -114,6 +114,15 @@ fn main() -> ExitCode {
         print!("{program}");
     }
 
+    if config.emit_llvm && program.main.is_none() {
+        report(&[Error::new(
+            Code::Main,
+            "no `main` function defined; building a program needs `fn main(): i32`",
+            diagnostic::Span::new(0, 0),
+        )]);
+        return ExitCode::FAILURE;
+    }
+
     if config.emit_llvm {
         print!("{}", codegen::emit(&program, &config.file_name));
     }

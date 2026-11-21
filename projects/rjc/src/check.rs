@@ -144,7 +144,9 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
                 ));
             }
         }
-        None => errors.push(Error::new(Code::Main, "no `main` function defined", Span::new(0, 0))),
+        // A file without `main` is a library; only building a program needs
+        // one.
+        None => {}
     }
 
     let functions = module
@@ -221,7 +223,7 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
     Ok(hir::Program {
         structs,
         functions,
-        main: main.unwrap(),
+        main,
         examples,
     })
 }
@@ -1676,7 +1678,7 @@ mod tests {
         )
         .unwrap();
 
-        let main = program.function(program.main);
+        let main = program.function(program.main.unwrap());
         let hir::StmtKind::Assign { values, .. } = &main.body.stmts[0].kind else {
             panic!("expected assignment");
         };
@@ -2166,9 +2168,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_main() {
-        let (message, _) = error("fn f() {}");
-        assert_eq!(message, "no `main` function defined");
+    fn library_without_main() {
+        let program = check_source("fn f(): i32 { return 1 } example f() == 1").unwrap();
+        assert!(program.main.is_none());
     }
 
     #[test]
