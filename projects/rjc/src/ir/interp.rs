@@ -232,6 +232,8 @@ impl<'p> Machine<'p> {
                     }
                 }
 
+                Terminator::Unreachable => panic!("{}: reached an unreachable block", function.name),
+
                 Terminator::Return => {
                     return Ok(function
                         .returns

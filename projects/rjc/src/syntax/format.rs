@@ -333,6 +333,37 @@ impl Formatter<'_> {
                 self.block(&header, body, "");
             }
 
+            StmtKind::For {
+                index,
+                var,
+                source,
+                body,
+                else_block,
+            } => {
+                let names = match index {
+                    Some(index) => format!("{}, {}", index.name, var.name),
+                    None => var.name.clone(),
+                };
+                let source = match source {
+                    ForSource::Range(start, end) => {
+                        format!("{}..{}", self.expr(start), self.expr(end))
+                    }
+                    ForSource::Each(expr) => self.expr(expr),
+                };
+                let header = format!("for {names} in {source}");
+
+                match else_block {
+                    None => self.block(&header, body, ""),
+                    Some(else_block) => {
+                        self.block(&header, body, " else {");
+                        self.else_block(else_block);
+                    }
+                }
+            }
+
+            StmtKind::Break => self.line("break", end),
+            StmtKind::Continue => self.line("continue", end),
+
             StmtKind::If {
                 cond,
                 then_block,

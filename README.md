@@ -55,6 +55,22 @@ fn min_max(a: [i32; 4]): i32, i32 {
 - Inside a function, variables are mutable: assignment (including parallel
   `a, b = b, a`), assignment to parts such as `g.nodes[i].value = v`,
   `if`/`else` and `while`.
+- `for` loops over ranges and arrays. The element name stands for the
+  element itself, so changing it changes the array in place; `else` runs
+  when the loop ends without `break`:
+  ```
+  for i, n in g.nodes {
+    n.value = i32(i)
+  }
+
+  for i in 0..limit {
+    if found(i) {
+      return i
+    }
+  } else {
+    return 0 - 1
+  }
+  ```
 - Variables must be assigned before they are read; array indexes are bounds
   checked (at compile time for constants, otherwise at run time).
 

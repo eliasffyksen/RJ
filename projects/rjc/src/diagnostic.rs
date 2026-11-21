@@ -52,6 +52,8 @@ pub enum Code {
     Unreachable,
     AssignedTwice,
     IndexOutOfBounds,
+    LoopVariable,
+    OutsideLoop,
     // Program
     Main,
     InfiniteType,
@@ -92,6 +94,8 @@ impl Code {
         Code::Unreachable,
         Code::AssignedTwice,
         Code::IndexOutOfBounds,
+        Code::LoopVariable,
+        Code::OutsideLoop,
         Code::Main,
         Code::InfiniteType,
         Code::ExampleFailed,
@@ -129,6 +133,8 @@ impl Code {
             Code::Unreachable => "E0302",
             Code::AssignedTwice => "E0303",
             Code::IndexOutOfBounds => "E0304",
+            Code::LoopVariable => "E0305",
+            Code::OutsideLoop => "E0306",
             Code::Main => "E0400",
             Code::InfiniteType => "E0401",
             Code::ExampleFailed => "E0500",
@@ -171,6 +177,8 @@ impl Code {
             Code::Unreachable => "unreachable statement",
             Code::AssignedTwice => "assigned more than once",
             Code::IndexOutOfBounds => "index out of bounds",
+            Code::LoopVariable => "loop variable assigned",
+            Code::OutsideLoop => "`break` or `continue` outside a loop",
             Code::Main => "invalid `main`",
             Code::InfiniteType => "type contains itself",
             Code::ExampleFailed => "example failed",
@@ -275,6 +283,11 @@ impl Code {
                 "A constant index is outside the array. Valid indexes are 0 to \
                  length - 1."
             }
+            Code::LoopVariable => {
+                "The counter of a `for` loop is read-only: the loop sets it. To step \
+                 differently, compute the value you need from it."
+            }
+            Code::OutsideLoop => "`break` and `continue` only work inside a loop.",
             Code::Main => "Programs need a `fn main(): i32`; its result is the exit code.",
             Code::ExampleFailed => {
                 "An `example` didn't hold when the compiler ran it. For a comparison \

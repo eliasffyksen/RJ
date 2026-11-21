@@ -94,6 +94,7 @@ fn terminator_uses(function: &Function, terminator: &Terminator) -> Vec<LocalId>
         }
         // The caller reads the return slots.
         Terminator::Return => function.returns.clone(),
+        Terminator::Unreachable => vec![],
     }
 }
 

@@ -1,0 +1,171 @@
+type NodeId i32
+
+type Node struct {
+  value: i32,
+  edges: [NodeId; 3],
+}
+
+type Graph struct {
+  nodes: [Node; 4],
+}
+
+fn Node.bump() {
+  this.value = this.value + 1
+}
+
+fn sum_to(n: i32): i32 {
+  total: i32
+  total = 0
+  for i in 1..n + 1 {
+    total = total + i
+  }
+  return total
+}
+
+// A bounded search: `else` runs if no `return` or `break` happened.
+fn first_over(limit: i32, max: i32): i32 {
+  for i in 0..max {
+    if i > limit {
+      return i
+    }
+  } else {
+    return 0 - 1
+  }
+}
+
+fn sum(xs: [i32; 5]): i32 {
+  total: i32
+  total = 0
+  for x in xs {
+    total = total + x
+  }
+  return total
+}
+
+fn sum_odd_until_big(xs: [i32; 5]): i32 {
+  total: i32
+  total = 0
+  for x in xs {
+    if x > 100 {
+      break
+    }
+    if x == 3 {
+      continue
+    }
+    total = total + x
+  }
+  return total
+}
+
+fn make(): [i32; 3] {
+  return [1, 2, 3]
+}
+
+fn main(): i32 {
+  if sum_to(10) != 55 {
+    return 1
+  }
+  if sum_to(0) != 0 {
+    return 2
+  }
+  if first_over(5, 100) != 6 {
+    return 3
+  }
+  if first_over(500, 100) != 0 - 1 {
+    return 4
+  }
+  if sum([1, 2, 3, 4, 5]) != 15 {
+    return 5
+  }
+
+  // `break` and `continue`.
+  total: i32
+  total = 0
+  for i in 0..10 {
+    if i == 7 {
+      break
+    }
+    if i == 2 {
+      continue
+    }
+    total = total + i
+  }
+  if total != 19 {
+    return 6
+  }
+
+  g: Graph
+  g = Graph(nodes: [Node(value: 0, edges: [0, 0, 0]); 4])
+
+  // Elements are changed where they are.
+  for i, n in g.nodes {
+    n.value = i32(i) + 10
+    n.edges[0] = NodeId(i)
+  }
+  if g.nodes[3].value != 13 {
+    return 7
+  }
+  if g.nodes[2].edges[0] != 2 {
+    return 8
+  }
+
+  // Methods on elements, and replacing whole elements.
+  for n in g.nodes {
+    n.bump()
+  }
+  if g.nodes[0].value != 11 {
+    return 9
+  }
+  for n in g.nodes {
+    n = Node(value: 1, edges: n.edges)
+  }
+  if g.nodes[1].value + i32(g.nodes[1].edges[0]) != 2 {
+    return 10
+  }
+
+  // The path is fixed when the loop starts, even if `j` changes.
+  j: i32
+  j = 1
+  for e in g.nodes[j].edges {
+    e = 9
+    j = 0
+  }
+  if g.nodes[1].edges[2] != 9 {
+    return 11
+  }
+  if g.nodes[0].edges[2] != 0 {
+    return 12
+  }
+
+  // A loop over a value that isn't a variable.
+  total = 0
+  for x in make() {
+    total = total + x
+  }
+  if total != 6 {
+    return 13
+  }
+
+  // Nested loops, and `len()`.
+  total = 0
+  for a in 0..g.nodes.len() {
+    for b in 0..a {
+      total = total + 1
+    }
+  }
+  if total != 6 {
+    return 14
+  }
+
+  // Counters of named types.
+  last: NodeId
+  last = 0
+  for id in NodeId(0)..NodeId(4) {
+    last = id
+  }
+  if last != 3 {
+    return 15
+  }
+
+  return 0
+}

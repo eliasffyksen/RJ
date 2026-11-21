@@ -13,7 +13,8 @@ ret_type = {
 }
 
 keyword = @{
-  ("fn" | "type" | "struct" | "this" | "example" | "if" | "else" | "while" | "return" | "true" | "false")
+  ("fn" | "type" | "struct" | "this" | "example" | "if" | "else" | "while" | "for" | "in"
+   | "break" | "continue" | "return" | "true" | "false")
   ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -32,7 +33,29 @@ stmt = {
   | func_call
   | if_stmt
   | while_stmt
+  | for_stmt
+  | break_stmt
+  | continue_stmt
   | expr_stmt
+}
+
+// `for i in a..b`, `for x in xs` or `for i, x in xs`, with an `else` that
+// runs if the loop ends without `break`.
+for_stmt = {
+  "for" ~ ident ~ ("," ~ ident)? ~ "in" ~ (range | expr_elm) ~ block
+  ~ ("else" ~ block)?
+}
+
+range = {
+  expr_elm ~ ".." ~ expr_elm
+}
+
+break_stmt = @{
+  "break" ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+continue_stmt = @{
+  "continue" ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
 // Only method calls are allowed as statements; the parser checks this.

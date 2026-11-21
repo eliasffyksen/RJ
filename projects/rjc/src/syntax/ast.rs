@@ -88,6 +88,16 @@ pub enum StmtKind {
         cond: Expr,
         body: Block,
     },
+    /// `for var in source` or `for index, var in source`.
+    For {
+        index: Option<Ident>,
+        var: Ident,
+        source: ForSource,
+        body: Block,
+        else_block: Option<Block>,
+    },
+    Break,
+    Continue,
     Return(Vec<Expr>),
     /// A method call used as a statement.
     Expr(Expr),
@@ -135,6 +145,14 @@ pub enum ExprKind {
         name: Ident,
         fields: Vec<(Ident, Expr)>,
     },
+}
+
+#[derive(Debug)]
+pub enum ForSource {
+    /// `start..end`
+    Range(Expr, Expr),
+    /// The elements of an array.
+    Each(Expr),
 }
 
 /// An assignment target: a variable, or a part of one such as `x.items[i]`.

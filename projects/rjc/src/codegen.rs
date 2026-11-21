@@ -221,7 +221,10 @@ impl<'a> FunctionEmitter<'a> {
                     let index = match index {
                         Operand::Int(i) => i.to_string(),
                         Operand::Local(id) => match &self.function.local(*id).kind {
-                            LocalKind::Param(name) | LocalKind::Var(name) => name.clone(),
+                            // Hidden locals, like a loop's own counter, are named `#`.
+                            LocalKind::Param(name) | LocalKind::Var(name) if name != "#" => {
+                                name.clone()
+                            }
                             _ => "...".to_string(),
                         },
                         Operand::Bool(b) => b.to_string(),
@@ -765,6 +768,7 @@ impl<'a> FunctionEmitter<'a> {
             }
 
             Terminator::Return => self.line("ret void"),
+            Terminator::Unreachable => self.line("unreachable"),
         }
     }
 }

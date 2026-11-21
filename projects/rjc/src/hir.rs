@@ -108,17 +108,33 @@ pub enum StmtKind {
         cond: Expr,
         body: Block,
     },
+    /// Runs `body` with `var` from `start` up to (not including) `end`,
+    /// both evaluated once after `prelude`; `else_block` runs if the loop
+    /// ends without `break`. Array loops are ranges over indexes, with the
+    /// element name already replaced by the element it stands for.
+    For {
+        /// Hidden locals assigned before the loop, such as the array being
+        /// looped over when it isn't a variable.
+        prelude: Vec<(LocalId, Expr)>,
+        var: LocalId,
+        start: Expr,
+        end: Expr,
+        body: Block,
+        else_block: Option<Block>,
+    },
+    Break,
+    Continue,
     Return(Vec<Value>),
 }
 
 /// A variable, or a part of one reached through fields and indexes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Place {
     pub local: LocalId,
     pub path: Vec<PlaceElem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PlaceElem {
     Index(Expr),
     /// Field number, in declaration order.
@@ -126,7 +142,7 @@ pub enum PlaceElem {
 }
 
 /// One entry of a value list.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     /// Exactly one value.
     Single(Expr),
@@ -134,14 +150,14 @@ pub enum Value {
     Multi(Call),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(i32),
     Bool(bool),
@@ -173,7 +189,7 @@ pub enum ExprKind {
 
 /// A function call, or a method call when `receiver` is set. The receiver
 /// is the method's first parameter and is not part of `args`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Call {
     pub func: FuncId,
     pub receiver: Option<Receiver>,
@@ -181,7 +197,7 @@ pub struct Call {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Receiver {
     /// A variable or part of one. If the method changes `this`, the result
     /// is written back to it.

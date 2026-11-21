@@ -166,6 +166,9 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
                 locals: vec![],
                 scopes: vec![],
                 assigned: HashSet::new(),
+                aliases: HashMap::new(),
+                readonly: HashSet::new(),
+                loops: vec![],
             }
             .function(function, signature)
         })
@@ -185,6 +188,9 @@ pub fn check(module: &ast::Module) -> Result<hir::Program, Vec<Error>> {
                 locals: vec![],
                 scopes: vec![HashMap::new()],
                 assigned: HashSet::new(),
+                aliases: HashMap::new(),
+                readonly: HashSet::new(),
+                loops: vec![],
             }
             .example(example)
         })
@@ -471,6 +477,23 @@ impl Types {
                     self.erase_expr(cond);
                     self.erase_block(body);
                 }
+                hir::StmtKind::For {
+                    prelude,
+                    start,
+                    end,
+                    body,
+                    else_block,
+                    ..
+                } => {
+                    prelude.iter_mut().for_each(|(_, e)| self.erase_expr(e));
+                    self.erase_expr(start);
+                    self.erase_expr(end);
+                    self.erase_block(body);
+                    if let Some(else_block) = else_block {
+                        self.erase_block(else_block);
+                    }
+                }
+                hir::StmtKind::Break | hir::StmtKind::Continue => {}
                 hir::StmtKind::Return(values) => {
                     values.iter_mut().for_each(|v| self.erase_value(v))
                 }
@@ -553,6 +576,13 @@ struct FunctionChecker<'a> {
     scopes: Vec<HashMap<String, LocalId>>,
     /// Locals that are definitely assigned at the current point.
     assigned: HashSet<LocalId>,
+    /// Element names of `for x in xs` loops: the name has a local slot that
+    /// is never used, and stands for the place `xs[i]`, with its type.
+    aliases: HashMap<LocalId, (hir::Place, Type)>,
+    /// Loop counters, which can't be assigned.
+    readonly: HashSet<LocalId>,
+    /// One entry per enclosing loop: whether it contains a `break`.
+    loops: Vec<bool>,
 }
 
 /// A checked statement (`None` for declarations, which only add a local)
@@ -757,6 +787,255 @@ impl FunctionChecker<'_> {
         self.scopes.last_mut().unwrap().insert(name.clone(), id);
 
         Some(id)
+    }
+
+    /// A local that has no name in the source.
+    fn hidden_local(&mut self, ty: Type, span: Span) -> LocalId {
+        self.locals.push(hir::Local {
+            name: "#".to_string(),
+            ty,
+            span,
+        });
+        LocalId(self.locals.len() - 1)
+    }
+
+    /// An expression reading `place`, which holds a value of type `ty`.
+    fn place_expr(&self, place: &hir::Place, ty: &Type, span: Span) -> hir::Expr {
+        let mut expr = hir::Expr {
+            kind: hir::ExprKind::Local(place.local),
+            ty: self.locals[place.local.0].ty.clone(),
+            span,
+        };
+
+        for elem in &place.path {
+            let (kind, elem_ty) = match (elem, self.under(&expr.ty)) {
+                (hir::PlaceElem::Index(index), Type::Array(elem_ty, _)) => (
+                    hir::ExprKind::Index {
+                        base: Box::new(expr),
+                        index: Box::new(index.clone()),
+                    },
+                    *elem_ty,
+                ),
+                (hir::PlaceElem::Field(field), Type::Struct(id, _)) => {
+                    let ty = self.types.structs[id.0].fields[*field].ty.clone();
+                    (
+                        hir::ExprKind::Field {
+                            base: Box::new(expr),
+                            field: *field,
+                        },
+                        ty,
+                    )
+                }
+                _ => unreachable!("place does not match its type"),
+            };
+            expr = hir::Expr {
+                kind,
+                ty: elem_ty,
+                span,
+            };
+        }
+
+        debug_assert!(expr.ty == *ty);
+        expr
+    }
+
+    /// Checks `for index, var in source { body } else { else_block }`.
+    fn for_loop(
+        &mut self,
+        index: &Option<ast::Ident>,
+        var: &ast::Ident,
+        source: &ast::ForSource,
+        body: &ast::Block,
+        else_block: &Option<ast::Block>,
+        span: Span,
+    ) -> Option<(hir::StmtKind, bool)> {
+        let mut prelude = vec![];
+
+        // The bounds, the counter's type, and for arrays the array as a place
+        // and its element type.
+        let (start, end, counter_ty, each) = match source {
+            ast::ForSource::Range(start, end) => {
+                if let Some(index) = index {
+                    self.error(Code::Count, "a range loop has one variable: `for i in a..b`", index.span);
+                    return None;
+                }
+
+                let start = self.expr(start);
+                let end = self.expr(end);
+                let (start, end) = (start?, end?);
+
+                // A literal adapts to a named type on the other side.
+                let ty = if start.ty == end.ty || (is_literal(&end) && self.adapts(&end.ty, &start.ty)) {
+                    start.ty.clone()
+                } else if is_literal(&start) && self.adapts(&start.ty, &end.ty) {
+                    end.ty.clone()
+                } else {
+                    self.error(
+                        Code::Mismatch,
+                        format!("the range's bounds have different types, {} and {}", start.ty, end.ty),
+                        span,
+                    )
+                    .types(&start.ty, &end.ty);
+                    return None;
+                };
+
+                if self.under(&ty) != Type::I32 {
+                    self.error(Code::Mismatch, format!("a range needs i32 bounds, found {ty}"), start.span)
+                        .types(Type::I32, &ty);
+                    return None;
+                }
+
+                (start, end, ty, None)
+            }
+
+            ast::ForSource::Each(expr) => {
+                let array = self.expr(expr)?;
+
+                let Type::Array(elem_ty, len) = self.under(&array.ty) else {
+                    self.error(
+                        Code::NotIndexable,
+                        format!("cannot loop over a value of type {}", array.ty),
+                        array.span,
+                    )
+                    .help("loop over a range instead: `for i in 0..n`");
+                    return None;
+                };
+
+                // Loop over the array where it is if it's a variable or a
+                // part of one, with any indexes in its path evaluated once.
+                // Anything else is evaluated once into a hidden local.
+                let place = match into_receiver(array) {
+                    hir::Receiver::Place(mut place) => {
+                        for elem in &mut place.path {
+                            if let hir::PlaceElem::Index(index) = elem {
+                                if !matches!(index.kind, hir::ExprKind::Int(_)) {
+                                    let hidden = self.hidden_local(index.ty.clone(), index.span);
+                                    let span = index.span;
+                                    let value = std::mem::replace(
+                                        index,
+                                        hir::Expr {
+                                            kind: hir::ExprKind::Local(hidden),
+                                            ty: Type::I32,
+                                            span,
+                                        },
+                                    );
+                                    index.ty = value.ty.clone();
+                                    prelude.push((hidden, value));
+                                }
+                            }
+                        }
+                        place
+                    }
+                    hir::Receiver::Value(value) => {
+                        let hidden = self.hidden_local(value.ty.clone(), value.span);
+                        prelude.push((hidden, *value));
+                        hir::Place {
+                            local: hidden,
+                            path: vec![],
+                        }
+                    }
+                };
+
+                let int = |value: i32| hir::Expr {
+                    kind: hir::ExprKind::Int(value),
+                    ty: Type::I32,
+                    span,
+                };
+                (int(0), int(len as i32), Type::I32, Some((place, *elem_ty)))
+            }
+        };
+
+        self.assigned.extend(prelude.iter().map(|(local, _)| *local));
+
+        // The loop's names live in a scope around the body.
+        self.scopes.push(HashMap::new());
+
+        let counter = match (&each, index) {
+            (None, _) => {
+                let decl = self.synthetic_decl(var);
+                self.declare_typed(&decl, counter_ty.clone())
+            }
+            (Some(_), Some(index)) => {
+                let decl = self.synthetic_decl(index);
+                self.declare_typed(&decl, Type::I32)
+            }
+            (Some(_), None) => Some(self.hidden_local(Type::I32, span)),
+        };
+
+        let alias = each.map(|(mut place, elem_ty)| {
+            let counter = counter?;
+            place.path.push(hir::PlaceElem::Index(hir::Expr {
+                kind: hir::ExprKind::Local(counter),
+                ty: Type::I32,
+                span: var.span,
+            }));
+            let decl = self.synthetic_decl(var);
+            let id = self.declare_typed(&decl, elem_ty.clone())?;
+            self.aliases.insert(id, (place, elem_ty));
+            Some(id)
+        });
+
+        let Some(counter) = counter else {
+            self.scopes.pop();
+            return None;
+        };
+        if let Some(None) = alias {
+            self.scopes.pop();
+            return None;
+        }
+
+        self.readonly.insert(counter);
+        self.assigned.insert(counter);
+        self.assigned.extend(alias.flatten());
+
+        // The body may run zero times, so assignments in it don't count
+        // after the loop.
+        let before = self.assigned.clone();
+        self.loops.push(false);
+        let body = self.block(body);
+        let has_break = self.loops.pop().unwrap();
+        self.assigned = before.clone();
+        self.scopes.pop();
+
+        // `else` runs when the loop ends without `break`.
+        let (else_block, else_diverges) = match else_block {
+            Some(else_block) => {
+                let (block, diverges) = self.block(else_block)?;
+                (Some(block), diverges)
+            }
+            None => (None, false),
+        };
+
+        // Without `break`, every path after the loop went through `else`.
+        if has_break {
+            self.assigned = before;
+        }
+
+        let diverges = else_block.is_some() && else_diverges && !has_break;
+
+        Some((
+            hir::StmtKind::For {
+                prelude,
+                var: counter,
+                start,
+                end,
+                body: body?.0,
+                else_block,
+            },
+            diverges,
+        ))
+    }
+
+    /// A declaration for a name introduced by a loop.
+    fn synthetic_decl(&self, name: &ast::Ident) -> ast::VarDecl {
+        ast::VarDecl {
+            name: name.clone(),
+            ty: ast::TypeExpr {
+                kind: ast::TypeExprKind::I32,
+                span: name.span,
+            },
+            span: name.span,
+        }
     }
 
     fn find_local(&self, name: &str) -> Option<LocalId> {
@@ -967,7 +1246,9 @@ impl FunctionChecker<'_> {
                 // what was assigned before the loop, so checking the body
                 // against that is enough.
                 let before = self.assigned.clone();
+                self.loops.push(false);
                 let body = self.block(body);
+                self.loops.pop();
                 self.assigned = before;
 
                 // A loop is never treated as returning, even `while true`.
@@ -978,6 +1259,31 @@ impl FunctionChecker<'_> {
                     },
                     false,
                 )
+            }
+
+            ast::StmtKind::For {
+                index,
+                var,
+                source,
+                body,
+                else_block,
+            } => self.for_loop(index, var, source, body, else_block, span)?,
+
+            ast::StmtKind::Break | ast::StmtKind::Continue => {
+                let is_break = matches!(stmt.kind, ast::StmtKind::Break);
+
+                let Some(has_break) = self.loops.last_mut() else {
+                    let word = if is_break { "break" } else { "continue" };
+                    self.error(Code::OutsideLoop, format!("`{word}` outside a loop"), span);
+                    return None;
+                };
+
+                if is_break {
+                    *has_break = true;
+                    (hir::StmtKind::Break, true)
+                } else {
+                    (hir::StmtKind::Continue, true)
+                }
             }
 
             ast::StmtKind::Return(values) => {
@@ -996,7 +1302,25 @@ impl FunctionChecker<'_> {
     /// Checks an assignment target, returning it with the type it holds.
     fn place(&mut self, target: &ast::Place) -> Option<(hir::Place, Type)> {
         let local = self.lookup(&target.name)?;
-        let mut ty = self.locals[local.0].ty.clone();
+
+        if self.readonly.contains(&local) {
+            self.error(
+                Code::LoopVariable,
+                format!("`{}` is the loop's counter and can't be assigned", target.name.name),
+                target.name.span,
+            );
+            return None;
+        }
+
+        // An element name stands for a part of the array.
+        if let Some((place, ty)) = self.aliases.get(&local).cloned() {
+            let (mut path, ty) = self.place_path(ty, &target.path, target.span)?;
+            let mut place = place;
+            place.path.append(&mut path);
+            return Some((place, ty));
+        }
+
+        let ty = self.locals[local.0].ty.clone();
 
         // Writing a part keeps the rest, so the variable must already hold a
         // value.
@@ -1009,13 +1333,25 @@ impl FunctionChecker<'_> {
             return None;
         }
 
+        let (path, ty) = self.place_path(ty, &target.path, target.span)?;
+        Some((hir::Place { local, path }, ty))
+    }
+
+    /// Checks a path into a value of type `ty`, returning it with the type
+    /// of the part it leads to.
+    fn place_path(
+        &mut self,
+        mut ty: Type,
+        elems: &[ast::PlaceElem],
+        span: Span,
+    ) -> Option<(Vec<hir::PlaceElem>, Type)> {
         let mut path = vec![];
 
-        for elem in &target.path {
+        for elem in elems {
             match elem {
                 ast::PlaceElem::Index(index) => {
                     let Type::Array(elem, len) = self.under(&ty) else {
-                        self.error(Code::NotIndexable, format!("cannot index into a value of type {ty}"), target.span);
+                        self.error(Code::NotIndexable, format!("cannot index into a value of type {ty}"), span);
                         return None;
                     };
 
@@ -1031,7 +1367,7 @@ impl FunctionChecker<'_> {
             }
         }
 
-        Some((hir::Place { local, path }, ty))
+        Some((path, ty))
     }
 
     /// Looks up field `name` on a value of type `ty`.
@@ -1085,7 +1421,20 @@ impl FunctionChecker<'_> {
                 receiver,
                 method,
                 args,
-            } => Some(self.method_call(receiver, method, args, expr.span)),
+            } => {
+                // `xs.len()` on an array is a constant, not a call.
+                if method.name == "len" && args.is_empty() {
+                    let Some(checked) = self.expr(receiver) else {
+                        return Some(None);
+                    };
+                    if matches!(self.under(&checked.ty), Type::Array(..)) {
+                        return None;
+                    }
+                    return Some(self.method_call_on(checked, method, args, expr.span));
+                }
+
+                Some(self.method_call(receiver, method, args, expr.span))
+            }
             _ => None,
         }
     }
@@ -1223,6 +1572,16 @@ impl FunctionChecker<'_> {
         span: Span,
     ) -> CallResult {
         let receiver = self.expr(receiver)?;
+        self.method_call_on(receiver, method, args, span)
+    }
+
+    fn method_call_on(
+        &mut self,
+        receiver: hir::Expr,
+        method: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+    ) -> CallResult {
         let key = (receiver.ty.clone(), method.name.clone());
 
         let Some(&func) = self.methods.get(&key) else {
@@ -1298,6 +1657,10 @@ impl FunctionChecker<'_> {
             ast::ExprKind::Var(ident) => {
                 let id = self.lookup(ident)?;
 
+                if let Some((place, ty)) = self.aliases.get(&id) {
+                    return Some(self.place_expr(place, ty, span));
+                }
+
                 if !self.assigned.contains(&id) {
                     self.error(Code::UseBeforeAssign, 
                         format!("`{}` is used before it is assigned", ident.name),
@@ -1317,7 +1680,14 @@ impl FunctionChecker<'_> {
             // A call to a type: `Empty()`, or a conversion like `NodeId(x)`.
             ast::ExprKind::Call(call) => return self.type_call(call, span),
 
-            ast::ExprKind::MethodCall { .. } => unreachable!("handled as a call"),
+            // `xs.len()` on an array; other method calls are calls.
+            ast::ExprKind::MethodCall { receiver, .. } => {
+                let receiver = self.expr(receiver)?;
+                let Type::Array(_, len) = self.under(&receiver.ty) else {
+                    unreachable!("only array lengths reach here");
+                };
+                (hir::ExprKind::Int(len as i32), Type::I32)
+            }
 
             ast::ExprKind::Binary { op, lhs, rhs } => {
                 let lhs = self.expr(lhs);
@@ -2091,6 +2461,96 @@ mod tests {
         let (code, help, _) = diagnostic("fn main(): i32 { if true { return 1 } }");
         assert_eq!(code, Code::MissingReturn);
         assert!(help.is_some());
+    }
+
+    #[test]
+    fn loop_counter_is_read_only() {
+        let (code, _, _) = diagnostic("fn main(): i32 { for i in 0..3 { i = 5 } return 0 }");
+        assert_eq!(code, Code::LoopVariable);
+
+        let (code, _, _) = diagnostic(
+            "fn main(): i32 { a: [i32; 2] a = [0; 2] for i, x in a { i = 1 } return 0 }",
+        );
+        assert_eq!(code, Code::LoopVariable);
+    }
+
+    #[test]
+    fn element_name_can_be_assigned() {
+        check_source("fn main(): i32 { a: [i32; 2] a = [0; 2] for x in a { x = 1 } return a[0] - 1 }")
+            .unwrap();
+    }
+
+    #[test]
+    fn break_outside_a_loop() {
+        let (code, _, _) = diagnostic("fn main(): i32 { break return 0 }");
+        assert_eq!(code, Code::OutsideLoop);
+    }
+
+    #[test]
+    fn range_with_two_names() {
+        let (code, _, _) = diagnostic("fn main(): i32 { for i, j in 0..3 {} return 0 }");
+        assert_eq!(code, Code::Count);
+    }
+
+    #[test]
+    fn loop_over_a_scalar() {
+        let (code, help, _) = diagnostic("fn main(): i32 { n: i32 n = 3 for x in n {} return 0 }");
+        assert_eq!(code, Code::NotIndexable);
+        assert!(help.is_some());
+    }
+
+    #[test]
+    fn range_bounds_must_be_i32() {
+        let (code, _, _) = diagnostic("fn main(): i32 { for i in 0..true {} return 0 }");
+        assert_eq!(code, Code::Mismatch);
+    }
+
+    #[test]
+    fn assignment_in_for_body_only() {
+        let (code, _, _) = diagnostic("fn main(): i32 { x: i32 for i in 0..3 { x = i } return x }");
+        assert_eq!(code, Code::UseBeforeAssign);
+    }
+
+    #[test]
+    fn for_else_that_returns_counts_as_returning() {
+        check_source(
+            "fn find(n: i32): i32 {
+               for i in 0..10 { if i == n { return i } } else { return 0 - 1 }
+             }
+             fn main(): i32 { return find(3) - 3 }",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn for_else_with_break_does_not_count_as_returning() {
+        let (code, _, _) = diagnostic(
+            "fn find(n: i32): i32 {
+               for i in 0..10 { if i == n { break } } else { return 0 - 1 }
+             }",
+        );
+        assert_eq!(code, Code::MissingReturn);
+    }
+
+    #[test]
+    fn else_runs_whenever_the_loop_does_not_break() {
+        // Without `break`, everything after the loop went through `else`.
+        check_source(
+            "fn main(): i32 {
+               x: i32
+               for i in 0..3 {} else { x = 1 }
+               return x - 1
+             }",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn array_length_is_a_constant() {
+        check_source(
+            "fn main(): i32 { a: [i32; 4] a = [0; 4] return a.len() - 4 }",
+        )
+        .unwrap();
     }
 
     #[test]

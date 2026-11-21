@@ -88,6 +88,10 @@ fn from_pest_error(error: pest::error::Error<Rule>) -> Error {
             Rule::assign => "assignment",
             Rule::if_stmt => "if statement",
             Rule::while_stmt => "while loop",
+            Rule::for_stmt => "for loop",
+            Rule::range => "range",
+            Rule::break_stmt => "`break`",
+            Rule::continue_stmt => "`continue`",
             Rule::var_decl => "variable declaration",
             Rule::var_type
             | Rule::ret_type
@@ -297,6 +301,44 @@ fn stmt(pair: Pair<Rule>) -> Result<Stmt> {
                 body: block(inner.next().unwrap())?,
             }
         }
+
+        Rule::for_stmt => {
+            let mut index = None;
+            let mut names = vec![];
+            let mut source = None;
+            let mut blocks = vec![];
+
+            for part in pair.into_inner() {
+                match part.as_rule() {
+                    Rule::ident => names.push(ident(part)),
+                    Rule::range => {
+                        let mut bounds = part.into_inner();
+                        let start = expr(bounds.next().unwrap())?;
+                        let end = expr(bounds.next().unwrap())?;
+                        source = Some(ForSource::Range(start, end));
+                    }
+                    Rule::expr_elm => source = Some(ForSource::Each(expr(part)?)),
+                    Rule::block => blocks.push(block(part)?),
+                    rule => unreachable!("unexpected {rule:?} in for loop"),
+                }
+            }
+
+            if names.len() == 2 {
+                index = Some(names.remove(0));
+            }
+            let mut blocks = blocks.into_iter();
+
+            StmtKind::For {
+                index,
+                var: names.remove(0),
+                source: source.unwrap(),
+                body: blocks.next().unwrap(),
+                else_block: blocks.next(),
+            }
+        }
+
+        Rule::break_stmt => StmtKind::Break,
+        Rule::continue_stmt => StmtKind::Continue,
 
         Rule::expr_stmt => {
             let expr = expr(pair.into_inner().next().unwrap())?;

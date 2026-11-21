@@ -180,6 +180,9 @@ pub enum Terminator {
         else_block: BlockId,
     },
     Return,
+    /// Ends a block no path reaches, such as the code after a loop that
+    /// always returns.
+    Unreachable,
 }
 
 impl Terminator {
@@ -191,7 +194,7 @@ impl Terminator {
                 else_block,
                 ..
             } => vec![*then_block, *else_block],
-            Terminator::Return => vec![],
+            Terminator::Return | Terminator::Unreachable => vec![],
         }
     }
 }
@@ -299,6 +302,7 @@ impl Function {
                     else_block,
                 } => writeln!(f, "    branch {cond}, {then_block}, {else_block}")?,
                 Terminator::Return => writeln!(f, "    return")?,
+                Terminator::Unreachable => writeln!(f, "    unreachable")?,
             }
         }
 

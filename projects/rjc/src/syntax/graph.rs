@@ -155,6 +155,48 @@ impl Graph<'_> {
 
             StmtKind::Expr(expr) => self.expr(expr),
 
+            StmtKind::For {
+                index,
+                var,
+                source,
+                body,
+                else_block,
+            } => {
+                let names = match index {
+                    Some(index) => format!("{}, {}", index.name, var.name),
+                    None => var.name.clone(),
+                };
+                let node = self.node(&format!("For|{names}"))?;
+
+                match source {
+                    ForSource::Range(start, end) => {
+                        let range = self.node("Range")?;
+                        self.edge(node, range)?;
+                        let child = self.expr(start)?;
+                        self.edge(range, child)?;
+                        let child = self.expr(end)?;
+                        self.edge(range, child)?;
+                    }
+                    ForSource::Each(expr) => {
+                        let child = self.expr(expr)?;
+                        self.edge(node, child)?;
+                    }
+                }
+
+                let child = self.block(body)?;
+                self.edge(node, child)?;
+
+                if let Some(else_block) = else_block {
+                    let child = self.block(else_block)?;
+                    self.edge(node, child)?;
+                }
+
+                Ok(node)
+            }
+
+            StmtKind::Break => self.node("Break"),
+            StmtKind::Continue => self.node("Continue"),
+
             StmtKind::Return(values) => {
                 let node = self.node("Return")?;
                 self.exprs(node, values)?;

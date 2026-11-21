@@ -57,6 +57,7 @@ fn lower_function(
         blocks: vec![],
         current: None,
         span: function.span,
+        loops: vec![],
     };
 
     builder.returns = function
@@ -120,6 +121,9 @@ struct Builder<'a> {
     current: Option<BlockId>,
     /// The source statement being lowered.
     span: Span,
+    /// For each enclosing loop: where `continue` and `break` go, and
+    /// whether a `break` was lowered.
+    loops: Vec<(BlockId, BlockId, bool)>,
 }
 
 impl Builder<'_> {
@@ -184,6 +188,27 @@ impl Builder<'_> {
             } => self.if_(cond, then_block, else_block),
 
             hir::StmtKind::While { cond, body } => self.while_(cond, body),
+
+            hir::StmtKind::For {
+                prelude,
+                var,
+                start,
+                end,
+                body,
+                else_block,
+            } => self.for_(prelude, *var, start, end, body, else_block.as_ref()),
+
+            hir::StmtKind::Break => {
+                let (_, exit, broke) = self.loops.last_mut().expect("break outside a loop");
+                *broke = true;
+                let exit = *exit;
+                self.terminate(Terminator::Goto(exit));
+            }
+
+            hir::StmtKind::Continue => {
+                let (next, _, _) = *self.loops.last().expect("continue outside a loop");
+                self.terminate(Terminator::Goto(next));
+            }
 
             hir::StmtKind::Return(values) => {
                 // Return slots are never read by the function itself, so the
@@ -406,13 +431,99 @@ impl Builder<'_> {
         });
 
         self.current = Some(body_start);
+        self.loops.push((header, exit, false));
         self.block(body);
+        self.loops.pop();
 
         if self.current.is_some() {
             self.terminate(Terminator::Goto(header));
         }
 
         self.current = Some(exit);
+    }
+
+    /// ```text
+    /// current: prelude; var = start; end' = end
+    ///          goto header
+    /// header:  branch var < end', body, else (or exit)
+    /// body:    ...; goto step         (`continue` goes to step)
+    /// step:    var = var + 1; goto header
+    /// else:    ...; goto exit
+    /// exit:                           (`break` goes here)
+    /// ```
+    fn for_(
+        &mut self,
+        prelude: &[(LocalId, hir::Expr)],
+        var: LocalId,
+        start: &hir::Expr,
+        end: &hir::Expr,
+        body: &hir::Block,
+        else_block: Option<&hir::Block>,
+    ) {
+        for (local, expr) in prelude {
+            self.expr_into(expr, *local);
+        }
+
+        // Both bounds are evaluated once, before the first iteration.
+        let end = self.stable_operand(end);
+        self.expr_into(start, var);
+
+        let header = self.new_block();
+        let body_start = self.new_block();
+        let step = self.new_block();
+        let else_start = else_block.map(|_| self.new_block());
+        let exit = self.new_block();
+
+        self.terminate(Terminator::Goto(header));
+
+        self.current = Some(header);
+        let cond = self.new_temp(Type::Bool);
+        self.push(Stmt::Assign {
+            dest: cond,
+            value: Rvalue::Binary(BinOp::Lt, Operand::Local(var), end),
+        });
+        self.terminate(Terminator::Branch {
+            cond: Operand::Local(cond),
+            then_block: body_start,
+            else_block: else_start.unwrap_or(exit),
+        });
+
+        self.current = Some(body_start);
+        self.loops.push((step, exit, false));
+        self.block(body);
+        let (_, _, broke) = self.loops.pop().unwrap();
+
+        if self.current.is_some() {
+            self.terminate(Terminator::Goto(step));
+        }
+
+        // `var < end` held, so `var + 1` can't overflow.
+        self.current = Some(step);
+        self.push(Stmt::Assign {
+            dest: var,
+            value: Rvalue::Binary(BinOp::Add, Operand::Local(var), Operand::Int(1)),
+        });
+        self.terminate(Terminator::Goto(header));
+
+        // Without `else`, the loop ends at `exit`; with it, `exit` is only
+        // reached by `break` or by falling out of `else`.
+        let mut reached = else_block.is_none() || broke;
+
+        if let (Some(else_block), Some(else_start)) = (else_block, else_start) {
+            self.current = Some(else_start);
+            self.block(else_block);
+
+            if self.current.is_some() {
+                self.terminate(Terminator::Goto(exit));
+                reached = true;
+            }
+        }
+
+        self.current = Some(exit);
+
+        if !reached {
+            self.terminate(Terminator::Unreachable);
+        }
     }
 
     fn call(&mut self, call: &hir::Call, dests: Vec<LocalId>) {
@@ -814,6 +925,21 @@ fn block_writes(block: &hir::Block, this: LocalId, writes: &[bool]) -> bool {
         hir::StmtKind::While { cond, body } => {
             expr_writes(cond, this, writes) || block_writes(body, this, writes)
         }
+        hir::StmtKind::For {
+            prelude,
+            start,
+            end,
+            body,
+            else_block,
+            ..
+        } => {
+            prelude.iter().any(|(_, e)| expr_writes(e, this, writes))
+                || expr_writes(start, this, writes)
+                || expr_writes(end, this, writes)
+                || block_writes(body, this, writes)
+                || else_block.as_ref().is_some_and(|b| block_writes(b, this, writes))
+        }
+        hir::StmtKind::Break | hir::StmtKind::Continue => false,
         hir::StmtKind::Return(values) => values.iter().any(|v| value_writes(v, this, writes)),
     })
 }
