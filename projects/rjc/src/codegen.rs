@@ -876,11 +876,9 @@ mod tests {
             "{SET}
              fn main(): i32 {{
                a: [i32; 1000]
-               i: i32
-               a, i = [0; 1000], 0
-               while i < 1000 {{
+               a = [0; 1000]
+               for i in 0..1000 {{
                  a = set(a, i, i)
-                 i = i + 1
                }}
                return a[999] - 999
              }}"
@@ -900,12 +898,9 @@ mod tests {
             }
             fn main(): i32 {
               g: Graph
-              i: i32
               g = Graph(nodes: [Node(value: 0, edges: [0; 100]); 100])
-              i = 0
-              while i < 100 {
+              for i in 0..100 {
                 g = bump(g, i)
-                i = i + 1
               }
               return g.nodes[99].value - 1
             }";
@@ -928,11 +923,8 @@ mod tests {
         let source = format!(
             "{GRAPH}
              fn bump_all(g: Graph): Graph {{
-               i: i32
-               i = 0
-               while i < 100 {{
+               for i in 0..100 {{
                  g.nodes[i] = bump(g.nodes[i])
-                 i = i + 1
                }}
                return g
              }}
@@ -948,11 +940,9 @@ mod tests {
             "{GRAPH}
              fn sum(g: Graph): i32 {{
                s: i32
-               i: i32
-               s, i = 0, 0
-               while i < 100 {{
+               s = 0
+               for i in 0..100 {{
                  s = s + total(g.nodes[i].edges)
-                 i = i + 1
                }}
                return s
              }}
@@ -984,11 +974,8 @@ mod tests {
             "{GRAPH}
              fn Node.bump_node() {{ this.value = this.value + 1 }}
              fn Graph.bump_all() {{
-               i: i32
-               i = 0
-               while i < 100 {{
+               for i in 0..100 {{
                  this.nodes[i].bump_node()
-                 i = i + 1
                }}
              }}
              fn Graph.first(): i32 {{ return this.nodes[0].value }}

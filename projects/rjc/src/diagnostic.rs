@@ -54,6 +54,7 @@ pub enum Code {
     IndexOutOfBounds,
     LoopVariable,
     OutsideLoop,
+    NoWhile,
     // Program
     Main,
     InfiniteType,
@@ -96,6 +97,7 @@ impl Code {
         Code::IndexOutOfBounds,
         Code::LoopVariable,
         Code::OutsideLoop,
+        Code::NoWhile,
         Code::Main,
         Code::InfiniteType,
         Code::ExampleFailed,
@@ -135,6 +137,7 @@ impl Code {
             Code::IndexOutOfBounds => "E0304",
             Code::LoopVariable => "E0305",
             Code::OutsideLoop => "E0306",
+            Code::NoWhile => "E0307",
             Code::Main => "E0400",
             Code::InfiniteType => "E0401",
             Code::ExampleFailed => "E0500",
@@ -179,6 +182,7 @@ impl Code {
             Code::IndexOutOfBounds => "index out of bounds",
             Code::LoopVariable => "loop variable assigned",
             Code::OutsideLoop => "`break` or `continue` outside a loop",
+            Code::NoWhile => "no `while` loops",
             Code::Main => "invalid `main`",
             Code::InfiniteType => "type contains itself",
             Code::ExampleFailed => "example failed",
@@ -245,7 +249,7 @@ impl Code {
                  i32 values; `==` and `!=` compare two values of the same i32 or \
                  bool type. Arrays and structs can't be compared."
             }
-            Code::NotBool => "Conditions of `if` and `while` must be bool.",
+            Code::NotBool => "Conditions of `if` must be bool.",
             Code::BadIndexType => "Array indexes must be i32 (or a named type of i32).",
             Code::NotIndexable => "Only arrays can be indexed with `[...]`.",
             Code::BadConversion => {
@@ -271,8 +275,9 @@ impl Code {
                  afterwards. Assigning a part (`a[i] = v`) also reads the rest."
             }
             Code::MissingReturn => {
-                "A function with return values must `return` on every path. Loops \
-                 never count as returning."
+                "A function with return values must `return` on every path. A loop \
+                 only counts as returning through an `else` block that returns, when \
+                 the loop has no `break`."
             }
             Code::Unreachable => "Statements after a `return` in the same block never run.",
             Code::AssignedTwice => {
@@ -288,6 +293,12 @@ impl Code {
                  differently, compute the value you need from it."
             }
             Code::OutsideLoop => "`break` and `continue` only work inside a loop.",
+            Code::NoWhile => {
+                "Every RJ program terminates, so loops are bounded: `for i in a..b` or \
+                 `for x in xs`. A loop that runs until something happens becomes \
+                 `for i in 0..max { if done { break } }`, and an `else` block after \
+                 the loop runs if `max` was reached without `break`."
+            }
             Code::Main => "Programs need a `fn main(): i32`; its result is the exit code.",
             Code::ExampleFailed => {
                 "An `example` didn't hold when the compiler ran it. For a comparison \

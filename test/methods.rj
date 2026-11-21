@@ -38,11 +38,9 @@ fn Graph.degree(n: NodeId): i32 {
 
 fn Graph.total(): i32 {
   sum: i32
-  i: i32
-  sum, i = 0, 0
-  while i < this.size {
+  sum = 0
+  for i in 0..this.size {
     sum = sum + this.nodes[i].value
-    i = i + 1
   }
   return sum
 }

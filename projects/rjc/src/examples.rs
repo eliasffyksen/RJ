@@ -130,9 +130,9 @@ mod tests {
     }
 
     #[test]
-    fn endless_loops_are_stopped() {
+    fn long_loops_are_stopped() {
         let source = format!(
-            "fn spin(): i32 {{ n: i32 n = 0 while true {{ n = n + 1 }} return n }}
+            "fn spin(): i32 {{ n: i32 n = 0 for i in 0..2000000000 {{ n = n + 1 }} return n }}
              example spin() == 0 {MAIN}"
         );
         let errors = run_source(&source);

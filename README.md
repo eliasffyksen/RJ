@@ -12,17 +12,15 @@ RJ to the rescue - *The brand new hipster language no one asked for*
 fn min_max(a: [i32; 4]): i32, i32 {
   lo: i32
   hi: i32
-  i: i32
-  lo, hi, i = a[0], a[0], 1
+  lo, hi = a[0], a[0]
 
-  while i < 4 {
-    if a[i] < lo {
-      lo = a[i]
+  for x in a {
+    if x < lo {
+      lo = x
     }
-    if a[i] > hi {
-      hi = a[i]
+    if x > hi {
+      hi = x
     }
-    i = i + 1
   }
 
   return lo, hi
@@ -54,8 +52,9 @@ fn min_max(a: [i32; 4]): i32, i32 {
   copies it, and a function changing its parameter never affects the caller.
 - Inside a function, variables are mutable: assignment (including parallel
   `a, b = b, a`), assignment to parts such as `g.nodes[i].value = v`,
-  `if`/`else` and `while`.
-- `for` loops over ranges and arrays. The element name stands for the
+  `if`/`else` and `for`.
+- Every program terminates: loops are bounded `for` loops over ranges and
+  arrays, and there is no `while`. The element name stands for the
   element itself, so changing it changes the array in place; `else` runs
   when the loop ends without `break`:
   ```

@@ -60,17 +60,15 @@ fn main(): i32 {
   g.nodes[2].value = 20
 
   // Same place on both sides.
-  i: i32
-  i = 0
-  while i < 3 {
+  for i in 0..3 {
     g.nodes[i] = bump(g.nodes[i])
-    i = i + 1
   }
   if g.nodes[0].value + g.nodes[1].value + g.nodes[2].value != 33 {
     return 1
   }
 
   // Same place, index written as an expression.
+  i: i32
   i = 1
   g.nodes[i + 1] = bump(g.nodes[i + 1])
   if g.nodes[2].value != 22 {

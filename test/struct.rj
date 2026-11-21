@@ -28,12 +28,10 @@ fn moved(p: Point, dx: i32): Point {
 
 fn total(g: Graph): i32 {
   sum: i32
-  i: i32
-  sum, i = 0, 0
+  sum = 0
 
-  while i < 3 {
-    sum = sum + g.nodes[i].value
-    i = i + 1
+  for n in g.nodes {
+    sum = sum + n.value
   }
 
   return sum

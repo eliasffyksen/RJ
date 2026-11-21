@@ -1,24 +1,17 @@
 fn sum(a: [i32; 5]): i32 {
   total: i32
-  i: i32
-  total, i = 0, 0
+  total = 0
 
-  while i < 5 {
-    total = total + a[i]
-    i = i + 1
+  for x in a {
+    total = total + x
   }
 
   return total
 }
 
 fn reversed(a: [i32; 5]): [i32; 5] {
-  i: i32
-  j: i32
-  i, j = 0, 4
-
-  while i < j {
-    a[i], a[j] = a[j], a[i]
-    i, j = i + 1, j - 1
+  for i in 0..2 {
+    a[i], a[4 - i] = a[4 - i], a[i]
   }
 
   return a

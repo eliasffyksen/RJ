@@ -473,10 +473,6 @@ impl Types {
                     self.erase_block(then_block);
                     self.erase_block(else_block);
                 }
-                hir::StmtKind::While { cond, body } => {
-                    self.erase_expr(cond);
-                    self.erase_block(body);
-                }
                 hir::StmtKind::For {
                     prelude,
                     start,
@@ -662,7 +658,7 @@ impl FunctionChecker<'_> {
                 ),
                 function.name.span,
             )
-            .help("add a `return` at the end; loops never count as returning");
+            .help("add a `return` at the end");
             return None;
         }
 
@@ -1238,27 +1234,14 @@ impl FunctionChecker<'_> {
                 )
             }
 
-            ast::StmtKind::While { cond, body } => {
-                let cond = self.condition(cond);
-
-                // The body may run zero times, so assignments in it don't
-                // count after the loop. Every iteration starts with at least
-                // what was assigned before the loop, so checking the body
-                // against that is enough.
-                let before = self.assigned.clone();
-                self.loops.push(false);
-                let body = self.block(body);
-                self.loops.pop();
-                self.assigned = before;
-
-                // A loop is never treated as returning, even `while true`.
-                (
-                    hir::StmtKind::While {
-                        cond: cond?,
-                        body: body?.0,
-                    },
-                    false,
-                )
+            // Every loop is bounded, so RJ has no `while`. It's still parsed
+            // so this can say what to write instead.
+            ast::StmtKind::While { .. } => {
+                self.error(Code::NoWhile, "RJ has no `while` loops", span).help(
+                    "loops are bounded: use `for i in 0..max { if done { break } }`, with an \
+                     `else` block for when `max` is reached",
+                );
+                return None;
             }
 
             ast::StmtKind::For {
@@ -2094,25 +2077,6 @@ mod tests {
     }
 
     #[test]
-    fn assignment_in_loop_body_only() {
-        let (message, _) = error(
-            "fn main(): i32 {
-               x: i32
-               while false { x = 1 }
-               return x
-             }",
-        );
-        assert_eq!(message, "`x` is used before it is assigned");
-    }
-
-    #[test]
-    fn loop_condition_must_be_bool() {
-        let (message, at) = error("fn main(): i32 { while 0 { } return 0 }");
-        assert_eq!(message, "condition must be bool, found i32");
-        assert_eq!(at, "0");
-    }
-
-    #[test]
     fn constant_index_out_of_bounds() {
         let (message, at) = error("fn main(): i32 { a: [i32; 3] a = [0; 3] return a[3] }");
         assert_eq!(message, "index 3 is out of bounds for an array of length 3");
@@ -2551,6 +2515,13 @@ mod tests {
             "fn main(): i32 { a: [i32; 4] a = [0; 4] return a.len() - 4 }",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn while_is_rejected_with_a_suggestion() {
+        let (code, help, _) = diagnostic("fn main(): i32 { while true { } return 0 }");
+        assert_eq!(code, Code::NoWhile);
+        assert!(help.unwrap().contains("for i in 0..max"));
     }
 
     #[test]

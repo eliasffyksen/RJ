@@ -1,11 +1,9 @@
 fn sum_to(n: i32): i32 {
   sum: i32
-  i: i32
-  sum, i = 0, 1
+  sum = 0
 
-  while i <= n {
+  for i in 1..n + 1 {
     sum = sum + i
-    i = i + 1
   }
 
   return sum
@@ -16,26 +14,22 @@ fn fib(n: i32): i32 {
   b: i32
   a, b = 1, 1
 
-  while n > 2 {
+  for i in 2..n {
     a, b = b, a + b
-    n = n - 1
   }
 
   return b
 }
 
-fn first_over(limit: i32): i32 {
-  i: i32
-  i = 0
-
-  while true {
+// A bounded search that gives up after `max` steps.
+fn first_over(limit: i32, max: i32): i32 {
+  for i in 0..max {
     if i > limit {
       return i
     }
-    i = i + 1
+  } else {
+    return 0 - 1
   }
-
-  return 0 - 1
 }
 
 fn main(): i32 {
@@ -51,7 +45,11 @@ fn main(): i32 {
     return 1
   }
 
-  if first_over(7) != 8 {
+  if first_over(7, 100) != 8 {
+    return 1
+  }
+
+  if first_over(7, 5) != 0 - 1 {
     return 1
   }
 

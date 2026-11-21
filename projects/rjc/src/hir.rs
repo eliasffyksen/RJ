@@ -104,10 +104,6 @@ pub enum StmtKind {
         /// Empty when the source had no `else`.
         else_block: Block,
     },
-    While {
-        cond: Expr,
-        body: Block,
-    },
     /// Runs `body` with `var` from `start` up to (not including) `end`,
     /// both evaluated once after `prelude`; `else_block` runs if the loop
     /// ends without `break`. Array loops are ranges over indexes, with the

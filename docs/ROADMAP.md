@@ -31,7 +31,7 @@ branch's test suite (`cargo test`, `make test`):
 
 - `i32`, `bool`, fixed-size arrays, `type` definitions (structs and named
   types), methods with `this`.
-- `if`/`else`, `while`, multiple return values, parallel assignment,
+- `if`/`else`, `for` loops, multiple return values, parallel assignment,
   assignment to parts of variables (`g.nodes[i].value = v`).
 - Definite assignment, return-on-all-paths and type checking with spanned
   errors.

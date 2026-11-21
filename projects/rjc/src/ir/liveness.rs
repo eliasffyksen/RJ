@@ -224,7 +224,7 @@ mod tests {
                x: [i32; 2]
                y: i32
                x, y = [1, 2], 0
-               while y < 3 {{ y = y + f(x) }}
+               for i in 0..3 {{ y = y + f(x) }}
                return y
              }}"
         );
